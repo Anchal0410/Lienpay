@@ -55,7 +55,7 @@ app.get('/health', (req, res) => {
 
 // ── API ROUTES (added as each System is built) ────────────────
 // System 2: Authentication
-// app.use('/api/auth',      require('./src/auth/routes'));
+app.use('/api/auth', require('./src/auth/auth.routes'));
 
 // System 3: KYC
 // app.use('/api/kyc',       require('./src/kyc/routes'));
