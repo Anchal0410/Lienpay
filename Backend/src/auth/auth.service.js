@@ -110,7 +110,6 @@ const verifyOTP = async ({ mobile, otp, ipAddress, deviceId, userAgent }) => {
   await query(`
     UPDATE otp_logs SET status = 'VERIFIED', verified_at = NOW()
     WHERE mobile = $1 AND status = 'PENDING'
-    ORDER BY created_at DESC LIMIT 1
   `, [mobile]);
 
   // 6. Find or create user
