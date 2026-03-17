@@ -10,7 +10,6 @@ const rateLimit   = require('express-rate-limit');
 const { testConnection } = require('./config/database');
 const { connectRedis }   = require('./config/redis');
 const { logger }         = require('./config/logger');
-const { migrate }        = require('./database/migrate');
 
 const app  = express();
 app.set('trust proxy', 1); // Required for Railway deployment
@@ -92,11 +91,7 @@ const startServer = async () => {
     // 1. Connect to database
     await testConnection();
 
-    // 2. Auto-run migrations (creates tables if they don't exist)
-    await migrate();
-    console.log('✅ Database schema ready');
-
-    // 3. Connect to Redis
+    // 2. Connect to Redis
     await connectRedis();
 
     // 4. Start server
