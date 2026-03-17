@@ -1,17 +1,19 @@
 require('dotenv').config();
 
-const express    = require('express');
-const cors       = require('cors');
-const helmet     = require('helmet');
-const morgan     = require('morgan');
+const express     = require('express');
+const cors        = require('cors');
+const helmet      = require('helmet');
+const morgan      = require('morgan');
 const compression = require('compression');
-const rateLimit  = require('express-rate-limit');
+const rateLimit   = require('express-rate-limit');
 
 const { testConnection } = require('./config/database');
 const { connectRedis }   = require('./config/redis');
 const { logger }         = require('./config/logger');
+const { migrate }        = require('./database/migrate');
 
 const app  = express();
+app.set('trust proxy', 1); // Required for Railway deployment
 const PORT = process.env.PORT || 3000;
 
 // ── SECURITY MIDDLEWARE ──────────────────────────────────────
@@ -19,7 +21,7 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.FRONTEND_URL || '*',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id', 'x-device-os', 'x-app-version'],
 }));
 app.use(compression());
 
@@ -31,6 +33,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(morgan('combined', {
   stream: { write: (msg) => logger.info(msg.trim()) }
 }));
+
+// ── TRUST PROXY (required for Railway / any reverse proxy) ───
+app.set('trust proxy', 1);
 
 // ── GLOBAL RATE LIMITER ──────────────────────────────────────
 const globalLimiter = rateLimit({
@@ -53,33 +58,9 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ── API ROUTES (added as each System is built) ────────────────
-// System 2: Authentication
+// ── API ROUTES ────────────────────────────────────────────────
 app.use('/api/auth', require('./src/auth/auth.routes'));
-
-// System 3: KYC
-app.use('/api/kyc', require('./src/kyc/kyc.routes'));
-
-// System 4: MF Portfolio
-// app.use('/api/portfolio', require('./src/portfolio/routes'));
-
-// System 5: Risk Engine
-// app.use('/api/risk',      require('./src/risk/routes'));
-
-// System 6: Pledge
-// app.use('/api/pledge',    require('./src/pledge/routes'));
-
-// System 7: Credit
-// app.use('/api/credit',    require('./src/credit/routes'));
-
-// System 8: Transactions
-// app.use('/api/txn',       require('./src/transactions/routes'));
-
-// System 9: Billing
-// app.use('/api/billing',   require('./src/billing/routes'));
-
-// System 10: NAV Monitor
-// app.use('/api/nav',       require('./src/nav/routes'));
+app.use('/api/kyc',  require('./src/kyc/kyc.routes'));
 
 // ── 404 HANDLER ──────────────────────────────────────────────
 app.use('*', (req, res) => {
@@ -97,9 +78,7 @@ app.use((err, req, res, next) => {
     url:     req.originalUrl,
     method:  req.method,
   });
-
-  const statusCode = err.statusCode || err.status || 500;
-  res.status(statusCode).json({
+  res.status(err.statusCode || 500).json({
     success: false,
     error:   process.env.NODE_ENV === 'production'
                ? 'An unexpected error occurred'
@@ -110,13 +89,21 @@ app.use((err, req, res, next) => {
 // ── STARTUP ───────────────────────────────────────────────────
 const startServer = async () => {
   try {
+    // 1. Connect to database
     await testConnection();
+
+    // 2. Auto-run migrations (creates tables if they don't exist)
+    await migrate();
+    console.log('✅ Database schema ready');
+
+    // 3. Connect to Redis
     await connectRedis();
 
+    // 4. Start server
     app.listen(PORT, () => {
       logger.info(`🚀 LienPay Backend running on port ${PORT}`);
       logger.info(`📌 Environment: ${process.env.NODE_ENV}`);
-      logger.info(`🔗 Health check: http://localhost:${PORT}/health`);
+      logger.info(`🔗 Health: http://localhost:${PORT}/health`);
     });
   } catch (err) {
     logger.error('❌ Startup failed:', err);
@@ -126,4 +113,4 @@ const startServer = async () => {
 
 startServer();
 
-module.exports = app; // for testing
+module.exports = app;
