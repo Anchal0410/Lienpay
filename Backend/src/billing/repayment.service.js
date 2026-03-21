@@ -47,7 +47,7 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
   const stmtRes = await query(`
     SELECT statement_id FROM statements
     WHERE account_id = $1 AND status IN ('GENERATED', 'OVERDUE')
-    ORDER BY statement_date DESC LIMIT 1
+    ORDER BY billing_period_end DESC LIMIT 1
   `, [account.account_id]);
 
   const repayRef = `REPAY_${Date.now()}_${uuidv4().slice(0, 8).toUpperCase()}`;
@@ -108,7 +108,7 @@ const confirmRepayment = async (repaymentRef, utr, amount) => {
   await query(`
     UPDATE repayments SET
       status       = 'SUCCESS',
-      utr          = $2,
+      payment_ref  = $2,
       confirmed_at = NOW()
     WHERE repayment_id = $1
   `, [repayment.repayment_id, utr]);
