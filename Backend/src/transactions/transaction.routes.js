@@ -121,6 +121,7 @@ const mockSettle = async (req, res) => {
     return success(res, result, 'Mock payment settled (World 1 routing simulated)');
   } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('mockSettle error:', err);
     return serverError(res);
   }
 };
