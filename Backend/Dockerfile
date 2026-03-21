@@ -15,10 +15,9 @@ COPY database/ ./database/
 # Create logs directory
 RUN mkdir -p logs
 
-# Verify critical files exist
-RUN ls -la src/transactions/ && echo "✅ transactions folder found"
-RUN ls -la src/pledge/ && echo "✅ pledge folder found"
-RUN ls -la src/credit/ && echo "✅ credit folder found"
+# Debug: show exactly what got copied
+RUN echo "=== /app contents ===" && ls -la
+RUN echo "=== /app/src contents ===" && ls -la src/
 
 EXPOSE 3000
 
