@@ -108,24 +108,7 @@ export default function CreditCard3D({ creditLimit, available, vpa, tier }) {
               </p>
             </div>
 
-            {/* Tier badge */}
-            <div style={{
-              padding: '3px 10px',
-              borderRadius: 20,
-              background: tier === 'A'
-                ? 'linear-gradient(135deg, var(--gold), #8B6914)'
-                : 'var(--bg-elevated)',
-              border: '1px solid rgba(201,164,73,0.3)',
-            }}>
-              <span style={{
-                fontSize: 10,
-                fontWeight: 600,
-                letterSpacing: '1px',
-                color: tier === 'A' ? 'var(--gold)' : 'var(--text-secondary)',
-              }}>
-                TIER {tier || 'B'}
-              </span>
-            </div>
+
           </div>
 
           {/* Middle - chip + limit */}

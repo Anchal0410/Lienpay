@@ -170,7 +170,7 @@ export default function Dashboard({ onPay }) {
           style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
           {[
             { icon: '◈', label: 'OUTSTANDING', value: formatCurrency(outstanding), accent: outstanding > 0 ? 'var(--gold)' : 'var(--text-secondary)' },
-            { icon: '◎', label: 'INTEREST RATE', value: `${account?.apr || '—'}%`, accent: 'var(--text-primary)' },
+            { icon: '◎', label: 'VS CREDIT CARDS', value: 'Save 55%+', accent: 'var(--jade)' },
           ].map((s, i) => (
             <motion.div key={i} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}
               style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px', cursor: 'pointer' }}>
@@ -269,15 +269,76 @@ export default function Dashboard({ onPay }) {
           )}
         </div>
 
+
+        {/* 30-Day Interest-Free Tracker */}
+        {transactions.length > 0 && (
+          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
+            style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.5px' }}>Interest-Free Window</h2>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {transactions.filter(t => t.status === 'SETTLED').slice(0, 3).map((txn, i) => {
+                const txnDate    = new Date(txn.initiated_at)
+                const freeUntil  = new Date(txnDate.getTime() + 30 * 24 * 60 * 60 * 1000)
+                const today      = new Date()
+                const daysLeft   = Math.max(0, Math.ceil((freeUntil - today) / (1000 * 60 * 60 * 24)))
+                const daysUsed   = Math.min(30, Math.floor((today - txnDate) / (1000 * 60 * 60 * 24)))
+                const pct        = (daysUsed / 30) * 100
+                const isExpired  = daysLeft === 0
+                const isUrgent   = daysLeft <= 5 && daysLeft > 0
+                const barColor   = isExpired ? '#EF4444' : isUrgent ? '#F59E0B' : 'var(--jade)'
+                return (
+                  <motion.div key={txn.txn_id}
+                    style={{ background: 'var(--bg-surface)', border: `1px solid ${isUrgent ? 'rgba(245,158,11,0.25)' : isExpired ? 'rgba(239,68,68,0.25)' : 'var(--border)'}`, borderRadius: 16, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                      <div>
+                        <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{txn.merchant_name}</p>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          Paid {txnDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>₹{parseFloat(txn.amount).toLocaleString('en-IN')}</p>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: barColor }}>
+                          {isExpired ? 'Interest accruing' : isUrgent ? `${daysLeft}d left — pay soon!` : `${daysLeft} days free`}
+                        </p>
+                      </div>
+                    </div>
+                    {/* Progress bar */}
+                    <div style={{ height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
+                      <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1, ease: 'easeOut', delay: i * 0.1 + 0.5 }}
+                        style={{ height: '100%', borderRadius: 2, background: `linear-gradient(90deg, var(--jade), ${barColor})` }} />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
+                      <p style={{ fontSize: 9, color: 'var(--text-muted)' }}>Day {daysUsed}</p>
+                      <p style={{ fontSize: 9, color: 'var(--text-muted)' }}>Day 30 — interest starts</p>
+                    </div>
+                  </motion.div>
+                )
+              })}
+            </div>
+          </motion.div>
+        )}
+
         {/* Free period card */}
         {outstanding === 0 && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }}
             style={{ background: 'linear-gradient(135deg, rgba(0,200,150,0.07), rgba(201,164,73,0.04))',
               border: '1px solid rgba(0,200,150,0.15)', borderRadius: 18, padding: '16px 18px', marginBottom: 20 }}>
-            <p style={{ fontSize: 14, color: 'var(--jade)', fontWeight: 800, marginBottom: 4 }}>✨ Zero interest right now</p>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-              Pay within 30 days of each purchase and pay nothing extra. Your wealth earns while you spend free.
-            </p>
+            <p style={{ fontSize: 14, color: 'var(--jade)', fontWeight: 800, marginBottom: 6 }}>✨ Smarter than a credit card</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {[
+                '30 days interest-free on every payment',
+                '1.33%/month vs credit cards charging 3%+',
+                'Pay only on what you spend, for days used',
+              ].map((t, i) => (
+                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <span style={{ color: 'var(--jade)', fontSize: 10, flexShrink: 0 }}>✓</span>
+                  <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t}</p>
+                </div>
+              ))}
+            </div>
           </motion.div>
         )}
       </div>

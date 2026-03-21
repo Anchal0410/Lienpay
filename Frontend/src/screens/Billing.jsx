@@ -181,7 +181,7 @@ export default function Billing() {
           <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>💡 How interest works</p>
           {[
             { icon: '✓', color: 'var(--jade)', text: '30 days interest-free on every payment' },
-            { icon: '%', color: 'var(--text-secondary)', text: `${creditAccount?.apr || '15.99'}% APR — only on what you use, for days used` },
+            { icon: '%', color: 'var(--text-secondary)', text: `Just ${((parseFloat(creditAccount?.apr || 15.99))/12).toFixed(2)}%/month — credit cards charge 3%+. Pay only for days used.` },
             { icon: '↺', color: 'var(--text-secondary)', text: 'Pay minimum due or full balance anytime' },
           ].map((item, i) => (
             <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: i < 2 ? 10 : 0 }}>

@@ -273,7 +273,7 @@ export default function Pay({ onBack, onSuccess }) {
 
                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'var(--jade-dim)', border: '1px solid var(--border-jade)', borderRadius: 20, padding: '5px 14px' }}>
                   <span style={{ fontSize: 11, color: 'var(--jade)' }}>✓</span>
-                  <span style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 700 }}>30-day interest-free</span>
+                  <span style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 700 }}>30-day interest-free · 55% cheaper than credit cards</span>
                 </div>
               </motion.div>
 

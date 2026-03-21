@@ -3,17 +3,8 @@ import useStore from '../store/useStore'
 import { logout } from '../api/client'
 import toast from 'react-hot-toast'
 
-const TIER_LABELS = {
-  A: { label: 'Premium Member', color: 'var(--gold)', sub: 'Best rates, highest trust' },
-  B: { label: 'Standard Member', color: 'var(--jade)', sub: 'Great rates, growing trust' },
-  C: { label: 'New Member', color: 'var(--text-secondary)', sub: 'Building credit history' },
-}
-
 export default function Profile({ onSettings }) {
   const { user, creditAccount, riskDecision, clearAuth, setOnboardingStep } = useStore()
-
-  const tier      = riskDecision?.risk_tier || 'B'
-  const tierInfo  = TIER_LABELS[tier] || TIER_LABELS['B']
 
   const handleLogout = async () => {
     try { await logout() } catch (_) {}
@@ -27,7 +18,7 @@ export default function Profile({ onSettings }) {
     { icon: '💳', label: 'UPI ID',       value: creditAccount?.upi_vpa || '—' },
     { icon: '🏦', label: 'PSP Bank',     value: creditAccount?.psp_bank || '—' },
     { icon: '💰', label: 'Credit Limit', value: creditAccount?.credit_limit ? `₹${parseFloat(creditAccount.credit_limit).toLocaleString('en-IN')}` : '—' },
-    { icon: '📊', label: 'Interest Rate', value: creditAccount?.apr ? `${creditAccount.apr}% APR` : '—' },
+    { icon: '📊', label: 'Monthly Rate', value: creditAccount?.apr ? `${(parseFloat(creditAccount.apr)/12).toFixed(2)}%/month` : '—' },
   ]
 
   return (
@@ -49,13 +40,7 @@ export default function Profile({ onSettings }) {
             {user?.full_name || user?.mobile ? `+91 ${user?.mobile}` : 'Account'}
           </h2>
 
-          {/* Tier badge */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 20,
-            background: `${tierInfo.color}12`, border: `1px solid ${tierInfo.color}30` }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: tierInfo.color }} />
-            <span style={{ fontSize: 12, fontWeight: 700, color: tierInfo.color }}>{tierInfo.label}</span>
-          </div>
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{tierInfo.sub}</p>
+
         </motion.div>
 
         {/* What is my tier? */}
@@ -67,7 +52,7 @@ export default function Profile({ onSettings }) {
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             Your tier is based on your credit bureau score and portfolio quality.
             Higher tiers get lower interest rates — Tier A (14.99%), Tier B (15.99%), Tier C (17.99%).
-            Your tier improves automatically as you use and repay on time.
+            Your tier improves as you repay on time. Tier A members pay just 1.25%/month — less than half what credit cards charge (3%+).
           </p>
         </motion.div>
 
