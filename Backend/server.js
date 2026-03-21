@@ -62,6 +62,9 @@ app.use('/api/auth', require('./src/auth/auth.routes'));
 app.use('/api/kyc',       require('./src/kyc/kyc.routes'));
 app.use('/api/portfolio', require('./src/portfolio/portfolio.routes'));
 app.use('/api/risk',      require('./src/risk/risk.routes'));
+app.use('/api/pledge',    require('./src/pledge/pledge.routes'));
+app.use('/api/credit',    require('./src/credit/credit.routes'));
+app.use('/api/txn',       require('./src/transactions/transaction.routes'));
 
 
 
