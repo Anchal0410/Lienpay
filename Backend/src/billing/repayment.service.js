@@ -172,8 +172,7 @@ const confirmRepayment = async (repaymentRef, utr, amount) => {
         paid_at          = CASE
           WHEN total_due - $2 <= 0 THEN NOW()
           ELSE paid_at
-        END,
-        updated_at = NOW()
+        END
       WHERE statement_id = $1
     `, [repayment.statement_id, repayment.amount]);
   }
@@ -304,7 +303,7 @@ const getPaymentInstructions = (paymentMode, amount, repayRef, account) => {
 const getRepaymentHistory = async (userId) => {
   const result = await query(`
     SELECT repayment_id, amount, payment_method,
-           payment_ref, utr, status,
+           payment_ref, status,
            initiated_at, confirmed_at
     FROM repayments
     WHERE user_id = $1
