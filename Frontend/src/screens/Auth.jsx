@@ -16,11 +16,16 @@ export default function Auth() {
     if (mobile.length !== 10) return toast.error('Enter a valid 10-digit mobile number')
     setLoading(true)
     try {
-      await sendOTP(mobile)
+      console.log('Sending OTP to:', mobile)
+      const res = await sendOTP(mobile)
+      console.log('OTP response:', res)
       toast.success('OTP sent!')
       setStep('otp')
     } catch (err) {
-      toast.error(err.message)
+      console.error('OTP error full:', err)
+      console.error('OTP error message:', err.message)
+      console.error('OTP error response:', err.response)
+      toast.error(err.message || 'Failed to send OTP')
     } finally {
       setLoading(false)
     }
