@@ -63,6 +63,9 @@ app.use('/api/kyc',       require('./src/kyc/kyc.routes'));
 app.use('/api/portfolio', require('./src/portfolio/portfolio.routes'));
 app.use('/api/risk',      require('./src/risk/risk.routes'));
 
+
+
+
 // ── 404 HANDLER ──────────────────────────────────────────────
 app.use('*', (req, res) => {
   res.status(404).json({
