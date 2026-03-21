@@ -66,9 +66,16 @@ const mockRepay = async (req, res) => {
   try {
     const { amount } = req.body;
     if (!amount) return error(res, 'Amount required', 400);
+    logger.info('Mock repay called', { user_id: req.user.user_id, amount });
     const result = await repaymentService.mockRepayment(req.user.user_id, parseFloat(amount));
+    logger.info('Mock repay success', { result });
     return success(res, result, result.message);
   } catch (err) {
+    logger.error('mockRepay error details:', { 
+      message: err.message, 
+      statusCode: err.statusCode,
+      stack: err.stack 
+    });
     if (err.statusCode) return error(res, err.message, err.statusCode);
     return serverError(res);
   }
