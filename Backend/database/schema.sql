@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS mf_holdings (
 CREATE INDEX idx_holdings_user ON mf_holdings(user_id);
 CREATE INDEX idx_holdings_isin ON mf_holdings(isin);
 CREATE INDEX idx_holdings_folio ON mf_holdings(folio_number);
+CREATE UNIQUE INDEX idx_holdings_user_folio ON mf_holdings(user_id, folio_number);
 
 -- ================================================================
 -- 9. NAV SNAPSHOTS & HISTORY
