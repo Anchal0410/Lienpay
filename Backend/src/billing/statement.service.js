@@ -76,21 +76,21 @@ const generateStatement = async (accountId) => {
   // Store statement
   const stmtRes = await query(`
     INSERT INTO statements (
-      account_id, user_id, statement_number,
+      account_id, user_id,
       billing_period_start, billing_period_end, due_date,
-      opening_balance, total_spend, total_repayments,
-      total_interest, penal_interest,
-      closing_balance, minimum_amount_due, total_due,
+      opening_balance, total_drawdowns, total_repayments,
+      interest_charged, fees_charged,
+      total_due, minimum_due,
       transaction_count, status
-    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'GENERATED')
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'GENERATED')
     RETURNING statement_id
   `, [
-    accountId, account.user_id, stmtNumber,
+    accountId, account.user_id,
     cycleStart, cycleEnd, dueDate,
     openingBalance, totalSpend, totalRepaid,
     totalInterest, penalInterest,
-    closingBalance, minimumAmountDue,
-    Math.max(closingBalance, 0),
+    Math.max(parseFloat(closingBalance.toFixed(2)), 0),
+    minimumAmountDue,
     transactions.length,
   ]);
 
@@ -169,8 +169,9 @@ const getStatement = async (userId, statementId) => {
 
 const getStatements = async (userId) => {
   const result = await query(`
-    SELECT statement_id, statement_number, billing_period_start, billing_period_end,
-           due_date, total_spend, total_interest, total_due, minimum_amount_due, status, generated_at
+    SELECT statement_id, billing_period_start, billing_period_end,
+           due_date, total_drawdowns as total_spend, interest_charged as total_interest,
+           total_due, minimum_due as minimum_amount_due, status, generated_at
     FROM statements WHERE user_id = $1
     ORDER BY billing_period_end DESC LIMIT 12
   `, [userId]);
