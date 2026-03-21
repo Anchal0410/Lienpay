@@ -65,6 +65,7 @@ app.use('/api/risk',      require('./src/risk/risk.routes'));
 app.use('/api/pledge',    require('./src/pledge/pledge.routes'));
 app.use('/api/credit',    require('./src/credit/credit.routes'));
 app.use('/api/txn',       require('./src/transactions/transaction.routes'));
+app.use('/api/billing',   require('./src/billing/billing.routes'));
 
 
 
@@ -102,7 +103,11 @@ const startServer = async () => {
     // 2. Connect to Redis
     await connectRedis();
 
-    // 4. Start server
+    // 4. Start cron jobs
+    const { startCronJobs } = require('./src/monitoring/cron.scheduler');
+    startCronJobs();
+
+    // 5. Start server
     app.listen(PORT, () => {
       logger.info(`🚀 LienPay Backend running on port ${PORT}`);
       logger.info(`📌 Environment: ${process.env.NODE_ENV}`);
