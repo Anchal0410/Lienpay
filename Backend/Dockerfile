@@ -2,24 +2,29 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install dependencies first (layer caching)
 COPY package*.json ./
 RUN npm install --production
 
-# Add cache buster - change this value to force fresh copy
-ARG CACHE_BUST=3
+ARG CACHE_BUST=4
 RUN echo "Cache bust: $CACHE_BUST"
 
-# Copy ALL source files
 COPY server.js ./
-COPY src/ ./src/
 COPY config/ ./config/
 COPY database/ ./database/
 
-# Create logs directory
+# Copy each src subfolder explicitly
+COPY src/auth/ ./src/auth/
+COPY src/kyc/ ./src/kyc/
+COPY src/middleware/ ./src/middleware/
+COPY src/utils/ ./src/utils/
+COPY src/portfolio/ ./src/portfolio/
+COPY src/risk/ ./src/risk/
+COPY src/pledge/ ./src/pledge/
+COPY src/credit/ ./src/credit/
+COPY src/transactions/ ./src/transactions/
+
 RUN mkdir -p logs
 
-# Verify all folders copied correctly
 RUN echo "=== src folders ===" && ls -la src/
 
 EXPOSE 3000
