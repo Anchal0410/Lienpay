@@ -135,7 +135,11 @@ const evaluateCreditLimit = async (userId) => {
 
     for (const holding of holdings) {
       const { peak_nav, lowest_nav } = await getPeakNAV(holding.isin);
-      const drawdown = calculateDrawdown(holding.nav_at_fetch, peak_nav, lowest_nav);
+      // If no NAV history yet (new fund) — treat current NAV as peak
+      // No drawdown penalty for funds with no history — correct behaviour
+      const effectivePeak   = peak_nav   || holding.nav_at_fetch;
+      const effectiveLowest = lowest_nav || holding.nav_at_fetch;
+      const drawdown = calculateDrawdown(holding.nav_at_fetch, effectivePeak, effectiveLowest);
       const drawdownAdj = getDrawdownAdjustment(drawdown.max_drawdown_pct);
 
       // Base eligible value already has LTV cap applied
@@ -210,7 +214,7 @@ const evaluateCreditLimit = async (userId) => {
     const { tier, apr } = getRiskTier(scoreBand, fraud_score, holdings);
 
     // 7. Store risk decision
-    const totalPortfolioValue = holdings.reduce((s, h) => s + h.value_at_fetch, 0);
+    const totalPortfolioValue = holdings.reduce((s, h) => s + parseFloat(h.value_at_fetch || 0), 0);
     const decisionRes = await query(`
       INSERT INTO risk_decisions (
         user_id, decision_type, portfolio_ltv_value,
