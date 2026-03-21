@@ -166,8 +166,12 @@ const confirmRepayment = async (repaymentRef, utr, amount) => {
       UPDATE statements SET
         total_repayments = total_repayments + $2,
         status           = CASE
-          WHEN closing_balance - $2 <= 0 THEN 'PAID'
+          WHEN total_due - $2 <= 0 THEN 'PAID'
           ELSE status
+        END,
+        paid_at          = CASE
+          WHEN total_due - $2 <= 0 THEN NOW()
+          ELSE paid_at
         END,
         updated_at = NOW()
       WHERE statement_id = $1
