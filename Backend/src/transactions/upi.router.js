@@ -1,6 +1,6 @@
 const axios  = require('axios');
 const { query }  = require('../../config/database');
-const { transitionState } = require('../state.machine');
+const { transitionState } = require('./state.machine');
 const { logger, audit }   = require('../../config/logger');
 
 // ─────────────────────────────────────────────────────────────
