@@ -17,6 +17,13 @@ const { logger } = require('../../config/logger');
 
 const startCronJobs = () => {
   logger.info('⏰ Starting cron jobs...');
+  
+  // Skip cron jobs in development to prevent interference with testing
+  if (process.env.NODE_ENV !== 'production') {
+    logger.info('⚠️  Cron jobs disabled in development mode');
+    logger.info('✅ All cron jobs scheduled');
+    return;
+  }
 
   // ── NAV MONITORING: Daily at 11:30pm ─────────────────────
   // AMFI updates NAVs after 11pm, so we run at 11:30pm
