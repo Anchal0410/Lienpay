@@ -139,6 +139,9 @@ export default function Auth() {
               }}>
                 <span style={{ color: 'var(--text-secondary)', marginRight: 12, fontSize: 15 }}>🇮🇳 +91</span>
                 <input
+                  id="mobile"
+                  name="mobile"
+                  autoComplete="tel"
                   type="tel"
                   value={mobile}
                   onChange={e => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
@@ -196,6 +199,8 @@ export default function Auth() {
                   <input
                     key={i}
                     ref={el => otpRefs.current[i] = el}
+                    id={`otp-${i}`}
+                    name={`otp-${i}`}
                     type="tel"
                     maxLength={1}
                     value={digit}
