@@ -1,0 +1,219 @@
+/* ─────────────────────────────────────────────
+   LIENPAY DESIGN SYSTEM
+   Liquid Wealth — Dark Luxury Fintech
+   ───────────────────────────────────────────── */
+
+:root {
+  /* Brand Colors */
+  --jade:         #00C896;
+  --jade-dim:     #00C89620;
+  --jade-glow:    #00C89640;
+  --gold:         #C9A449;
+  --gold-dim:     #C9A44920;
+
+  /* Background System */
+  --bg-base:      #0A0A0F;
+  --bg-surface:   #111118;
+  --bg-elevated:  #1A1A24;
+  --bg-overlay:   #22222F;
+
+  /* Text */
+  --text-primary:   #F0F0F5;
+  --text-secondary: #8888AA;
+  --text-muted:     #44445A;
+
+  /* Borders */
+  --border:       #FFFFFF10;
+  --border-jade:  #00C89630;
+
+  /* Shadows */
+  --shadow-jade:  0 0 40px #00C89625;
+  --shadow-gold:  0 0 40px #C9A44925;
+
+  /* Typography */
+  --font-serif:  'Instrument Serif', Georgia, serif;
+  --font-sans:   'Outfit', system-ui, sans-serif;
+
+  /* Spacing */
+  --safe-top:    env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* ── RESET ─────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ── SCROLLBAR ─────────────────────────────── */
+::-webkit-scrollbar { width: 2px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--jade-glow); border-radius: 2px; }
+
+/* ── TYPOGRAPHY ────────────────────────────── */
+.font-serif   { font-family: var(--font-serif); }
+.font-sans    { font-family: var(--font-sans); }
+
+/* ── GLASS MORPHISM ────────────────────────── */
+.glass {
+  background: rgba(255,255,255,0.03);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+}
+
+.glass-jade {
+  background: rgba(0,200,150,0.05);
+  border: 1px solid var(--border-jade);
+}
+
+/* ── GRADIENTS ─────────────────────────────── */
+.grad-jade {
+  background: linear-gradient(135deg, var(--jade), #00A878);
+}
+
+.grad-gold {
+  background: linear-gradient(135deg, var(--gold), #A07830);
+}
+
+.grad-text-jade {
+  background: linear-gradient(135deg, var(--jade), #80FFD4);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.grad-text-gold {
+  background: linear-gradient(135deg, var(--gold), #FFE0A0);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── GLOW EFFECTS ──────────────────────────── */
+.glow-jade { box-shadow: var(--shadow-jade); }
+.glow-gold { box-shadow: var(--shadow-gold); }
+.text-glow-jade { text-shadow: 0 0 20px #00C89660; }
+
+/* ── NOISE TEXTURE ─────────────────────────── */
+.noise::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* ── ANIMATIONS ────────────────────────────── */
+@keyframes pulse-jade {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-8px); }
+}
+
+@keyframes spin-slow {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.animate-pulse-jade  { animation: pulse-jade 2s ease-in-out infinite; }
+.animate-float       { animation: float 4s ease-in-out infinite; }
+.animate-spin-slow   { animation: spin-slow 8s linear infinite; }
+
+/* ── SHIMMER LOADING ───────────────────────── */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--bg-elevated) 0%,
+    var(--bg-overlay) 50%,
+    var(--bg-elevated) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* ── UTILITY ───────────────────────────────── */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-family: inherit;
+  color: inherit;
+}
+
+input {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+input::placeholder { color: var(--text-muted); }
+
+/* ── SCREEN CONTAINER ──────────────────────── */
+.screen {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--safe-bottom) + 80px);
+}
+
+.screen-no-nav {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* ── BOTTOM NAV ────────────────────────────── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding-bottom: var(--safe-bottom);
+}
