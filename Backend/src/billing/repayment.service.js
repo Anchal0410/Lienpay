@@ -32,6 +32,14 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
   const account = accountRes.rows[0];
   const outstanding = parseFloat(account.outstanding);
 
+  logger.info('Repayment check', { 
+    account_id: account.account_id,
+    outstanding, 
+    status: account.status,
+    credit_limit: account.credit_limit,
+    available_credit: account.available_credit
+  });
+
   if (outstanding <= 0) {
     throw { statusCode: 400, message: 'No outstanding balance to repay.' };
   }
