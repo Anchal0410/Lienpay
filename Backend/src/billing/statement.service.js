@@ -102,11 +102,20 @@ const generateStatement = async (accountId) => {
   const nextEnd    = new Date(nextStart.getFullYear(), nextStart.getMonth() + 1, 0);
   const nextDue    = new Date(nextStart.getFullYear(), nextStart.getMonth() + 2, 1);
 
+  // Carry closing balance as new outstanding into next cycle
+  const newOutstanding    = Math.max(parseFloat(closingBalance.toFixed(2)), 0);
+  const newAvailableCredit = parseFloat(account.credit_limit) - newOutstanding;
+
   await query(`
     UPDATE credit_accounts SET
-      current_cycle_start = $2, current_cycle_end = $3, due_date = $4, updated_at = NOW()
+      current_cycle_start = $2,
+      current_cycle_end   = $3,
+      due_date            = $4,
+      outstanding         = $5,
+      available_credit    = $6,
+      updated_at          = NOW()
     WHERE account_id = $1
-  `, [accountId, nextStart, nextEnd, nextDue]);
+  `, [accountId, nextStart, nextEnd, nextDue, newOutstanding, newAvailableCredit]);
 
   // Notify user
   await sendSMS(account.user_id, 'STATEMENT_GENERATED', {
