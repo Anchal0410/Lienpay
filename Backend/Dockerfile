@@ -6,7 +6,11 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install --production
 
-# Copy ALL source files explicitly
+# Add cache buster - change this value to force fresh copy
+ARG CACHE_BUST=3
+RUN echo "Cache bust: $CACHE_BUST"
+
+# Copy ALL source files
 COPY server.js ./
 COPY src/ ./src/
 COPY config/ ./config/
@@ -15,9 +19,8 @@ COPY database/ ./database/
 # Create logs directory
 RUN mkdir -p logs
 
-# Debug: show exactly what got copied
-RUN echo "=== /app contents ===" && ls -la
-RUN echo "=== /app/src contents ===" && ls -la src/
+# Verify all folders copied correctly
+RUN echo "=== src folders ===" && ls -la src/
 
 EXPOSE 3000
 
