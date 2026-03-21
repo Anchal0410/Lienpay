@@ -44,7 +44,7 @@ const generateStatement = async (accountId) => {
     SELECT COALESCE(SUM(amount), 0) as total_repaid
     FROM repayments
     WHERE account_id = $1 AND status = 'SUCCESS'
-      AND created_at >= $2 AND created_at <= $3
+      AND initiated_at >= $2 AND initiated_at <= $3
   `, [accountId, cycleStart, cycleEnd]);
 
   const totalRepaid  = parseFloat(repaymentsRes.rows[0]?.total_repaid || 0);

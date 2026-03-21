@@ -12,7 +12,7 @@ const { logger } = require('../../config/logger');
 // GET /api/billing/statements
 const getStatements = async (req, res) => {
   try {
-    const statements = await statementService.getStatementHistory(req.user.user_id);
+    const statements = await statementService.getStatements(req.user.user_id);
     return success(res, { statements });
   } catch (err) { return serverError(res); }
 };

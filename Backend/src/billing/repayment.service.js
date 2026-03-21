@@ -56,7 +56,7 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
   const repayRes = await query(`
     INSERT INTO repayments (
       account_id, user_id, statement_id,
-      amount, payment_mode, repayment_ref,
+      amount, payment_method, payment_ref,
       status, initiated_at
     ) VALUES ($1,$2,$3,$4,$5,$6,'PENDING',NOW())
     RETURNING repayment_id
@@ -81,9 +81,9 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
 
   return {
     repayment_id:         repaymentId,
-    repayment_ref:        repayRef,
+    payment_ref:        repayRef,
     amount:               repayAmount,
-    payment_mode:         paymentMode,
+    payment_method:         paymentMode,
     payment_instructions: paymentInstructions,
     message:              `Repayment of ₹${repayAmount.toLocaleString('en-IN')} initiated.`,
   };
@@ -93,7 +93,7 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
 const confirmRepayment = async (repaymentRef, utr, amount) => {
   // Find repayment
   const repayRes = await query(
-    "SELECT * FROM repayments WHERE repayment_ref = $1 AND status = 'PENDING'",
+    "SELECT * FROM repayments WHERE payment_ref = $1 AND status = 'PENDING'",
     [repaymentRef]
   );
 
@@ -162,7 +162,7 @@ const mockRepayment = async (userId, amount) => {
   const result = await initiateRepayment(userId, amount, 'MOCK');
   const utr    = `REPAY_UTR_${Date.now()}`;
 
-  await confirmRepayment(result.repayment_ref, utr, amount);
+  await confirmRepayment(result.payment_ref, utr, amount);
 
   return {
     repayment_id: result.repayment_id,
@@ -261,8 +261,8 @@ const getPaymentInstructions = (paymentMode, amount, repayRef, account) => {
 // ── GET REPAYMENT HISTORY ─────────────────────────────────────
 const getRepaymentHistory = async (userId) => {
   const result = await query(`
-    SELECT repayment_id, amount, payment_mode,
-           repayment_ref, utr, status,
+    SELECT repayment_id, amount, payment_method,
+           payment_ref, utr, status,
            initiated_at, confirmed_at
     FROM repayments
     WHERE user_id = $1
