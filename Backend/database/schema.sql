@@ -537,6 +537,22 @@ CREATE INDEX idx_credit_status ON credit_accounts(status);
 CREATE INDEX idx_credit_due ON credit_accounts(due_date);
 
 -- ================================================================
+-- 13b. KFS DOCUMENTS
+-- Records every KFS generated and accepted. RBI mandated.
+-- ================================================================
+CREATE TABLE IF NOT EXISTS kfs_documents (
+  kfs_id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id           UUID REFERENCES users(user_id),
+  kfs_version       VARCHAR(20) NOT NULL,
+  sanction_id       TEXT,
+  generated_at      TIMESTAMPTZ DEFAULT NOW(),
+  accepted_at       TIMESTAMPTZ,
+  UNIQUE(user_id, kfs_version)
+);
+
+CREATE INDEX idx_kfs_user ON kfs_documents(user_id);
+
+-- ================================================================
 -- 14. TRANSACTIONS
 -- Every UPI transaction. Immutable after SETTLED.
 -- ================================================================
