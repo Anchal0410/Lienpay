@@ -10,6 +10,7 @@ import Pay        from './screens/Pay'
 import Portfolio  from './screens/Portfolio'
 import Billing    from './screens/Billing'
 import Profile    from './screens/Profile'
+import Settings   from './screens/Settings'
 import NavBar     from './components/NavBar'
 
 const pageVariants = {
@@ -37,7 +38,8 @@ export default function App() {
       case 'home':      return <Dashboard key="home"      onPay={() => setShowPay(true)} />
       case 'portfolio': return <Portfolio  key="portfolio" />
       case 'billing':   return <Billing    key="billing"   />
-      case 'profile':   return <Profile    key="profile"   />
+      case 'profile':   return <Profile    key="profile"   onSettings={() => setActiveTab('settings')} />
+      case 'settings':  return <Settings   key="settings"  />
       default:          return <Dashboard  key="home"      onPay={() => setShowPay(true)} />
     }
   }

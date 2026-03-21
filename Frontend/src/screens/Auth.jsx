@@ -189,7 +189,7 @@ export default function Auth() {
                 Change number
               </button>
 
-              <div style={{ display: 'flex', gap: 10, marginBottom: 32 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8, marginBottom: 32 }}>
                 {otp.map((digit, i) => (
                   <input
                     key={i}
