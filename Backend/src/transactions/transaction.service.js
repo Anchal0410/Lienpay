@@ -265,7 +265,13 @@ const mockPaymentSuccess = async (txnId, userId) => {
   );
   if (!txnRes.rows.length) throw { statusCode: 404, message: 'Transaction not found or not in PRE_AUTHORISED state' };
   const txn = txnRes.rows[0];
+
+  // Must follow state machine: PRE_AUTHORISED → PENDING → SETTLED
+  await transitionState(txnId, 'PENDING', { timestamp: new Date(), routed_via: 'WORLD1_MOCK' });
+
   const utr = `UPI${Date.now()}${Math.floor(Math.random() * 100000)}`;
+
+  // Now settle via webhook handler (PENDING → SETTLED is valid)
   await handleSettlementWebhook({ lsp_txn_ref: txn.lsp_txn_ref, utr, status: 'SUCCESS', amount: txn.amount, timestamp: new Date() });
   return { txn_id: txnId, utr, status: 'SETTLED', routing_model: 'WORLD1' };
 };
