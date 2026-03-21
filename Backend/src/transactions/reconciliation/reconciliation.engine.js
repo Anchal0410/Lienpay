@@ -1,5 +1,5 @@
-const { query }  = require('../../config/database');
-const { logger, audit } = require('../../config/logger');
+const { query }  = require('../../../config/database');
+const { logger, audit } = require('../../../config/logger');
 
 // ─────────────────────────────────────────────────────────────
 // SETTLEMENT RECONCILIATION ENGINE
