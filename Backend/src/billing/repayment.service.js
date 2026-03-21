@@ -30,14 +30,44 @@ const initiateRepayment = async (userId, amount, paymentMode = 'UPI') => {
   }
 
   const account = accountRes.rows[0];
-  const outstanding = parseFloat(account.outstanding);
+
+  // Calculate true outstanding directly from transactions (source of truth)
+  const trueOutstandingRes = await query(`
+    SELECT 
+      COALESCE(SUM(t.amount), 0) as total_settled,
+      COALESCE((
+        SELECT SUM(r.amount) FROM repayments r 
+        WHERE r.account_id = $1 AND r.status = 'SUCCESS'
+      ), 0) as total_repaid
+    FROM transactions t
+    WHERE t.account_id = $1 AND t.status = 'SETTLED'
+  `, [account.account_id]);
+
+  const totalSettled = parseFloat(trueOutstandingRes.rows[0].total_settled);
+  const totalRepaid  = parseFloat(trueOutstandingRes.rows[0].total_repaid);
+  const outstanding  = Math.max(0, totalSettled - totalRepaid);
+
+  // Sync credit account outstanding with true value
+  if (Math.abs(outstanding - parseFloat(account.outstanding)) > 1) {
+    logger.info('Syncing outstanding from transactions', {
+      account_id:          account.account_id,
+      db_outstanding:      account.outstanding,
+      true_outstanding:    outstanding,
+    });
+    await query(`
+      UPDATE credit_accounts SET
+        outstanding      = $2,
+        available_credit = credit_limit - $2,
+        updated_at       = NOW()
+      WHERE account_id = $1
+    `, [account.account_id, outstanding]);
+  }
 
   logger.info('Repayment check', { 
-    account_id: account.account_id,
+    account_id:   account.account_id,
     outstanding, 
-    status: account.status,
-    credit_limit: account.credit_limit,
-    available_credit: account.available_credit
+    total_settled: totalSettled,
+    total_repaid:  totalRepaid,
   });
 
   if (outstanding <= 0) {
