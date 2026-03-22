@@ -76,7 +76,7 @@ export default function Dashboard({ onPay }) {
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <button onClick={() => setActiveTab('settings')} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <button style={{ marginTop: 8, width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             </button>
           </div>
@@ -96,8 +96,8 @@ export default function Dashboard({ onPay }) {
           <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Closed credit line · Only inside LienPay</p>
         </div>
 
-        {/* Stats */}
-        <ScrollReveal scrollY={scrollY} triggerAt={0}>
+        {/* Stats — visible on load, staggered */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
             {[
               { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
@@ -110,27 +110,25 @@ export default function Dashboard({ onPay }) {
               </div>
             ))}
           </div>
-        </ScrollReveal>
+        </motion.div>
 
         {/* LTV health bar */}
         <AnimatePresence>
           {ltv && ltv.status !== 'GREEN' && (
-            <ScrollReveal scrollY={scrollY} triggerAt={60}>
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                style={{ background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
-                  border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
-                  borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
-                <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
-                  {ltv.status === 'RED' ? '⚠️ Margin Call' : '⚡ Alert'}
-                </p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ltv.message}</p>
-              </motion.div>
-            </ScrollReveal>
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2 }}
+              style={{ background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
+                border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
+                borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
+                {ltv.status === 'RED' ? '⚠️ Margin Call' : '⚡ Alert'}
+              </p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ltv.message}</p>
+            </motion.div>
           )}
         </AnimatePresence>
 
-        {/* Pay CTA */}
-        <ScrollReveal scrollY={scrollY} triggerAt={120}>
+        {/* Pay CTA — visible on load */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }}>
           <motion.button
             whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
             whileTap={{ scale: 0.96 }}
@@ -148,10 +146,10 @@ export default function Dashboard({ onPay }) {
               Scan & Pay
             </span>
           </motion.button>
-        </ScrollReveal>
+        </motion.div>
 
-        {/* 30-day explainer */}
-        <ScrollReveal scrollY={scrollY} triggerAt={180}>
+        {/* 30-day explainer — visible on load */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5 }}>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
               <div style={{ width: 24, height: 24, borderRadius: 8, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -163,7 +161,7 @@ export default function Dashboard({ onPay }) {
               After that, just {((parseFloat(account?.apr || 15.99)) / 12).toFixed(2)}%/month. Credit cards charge 3%+.
             </p>
           </div>
-        </ScrollReveal>
+        </motion.div>
 
         {/* Transactions */}
         <div style={{ marginBottom: 24 }}>

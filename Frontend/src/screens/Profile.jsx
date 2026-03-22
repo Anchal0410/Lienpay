@@ -43,16 +43,16 @@ export default function Profile({ onSettings }) {
 
         </motion.div>
 
-        {/* What is my tier? */}
+        {/* Interest rate plan */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
           style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
           <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
-            What is my member tier?
+            How is my interest rate decided?
           </p>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            Your tier is based on your credit bureau score and portfolio quality.
-            Higher tiers get lower interest rates — Tier A (14.99%), Tier B (15.99%), Tier C (17.99%).
-            Your tier improves as you repay on time. Tier A members pay just 1.25%/month — less than half what credit cards charge (3%+).
+            Your rate is personalised based on your credit history and the quality of your pledged mutual funds.
+            Stronger portfolios with large-cap or debt funds unlock our best rates — starting at just 1.25%/month, less than half what credit cards charge.
+            As you build repayment history, your rate can improve over time.
           </p>
         </motion.div>
 

@@ -67,7 +67,9 @@ app.use('/api/credit',    require('./src/credit/credit.routes'));
 app.use('/api/txn',       require('./src/transactions/transaction.routes'));
 app.use('/api/billing',   require('./src/billing/billing.routes'));
 
-
+// Dashboard APIs
+app.use('/api/admin',  require('./src/admin/admin.routes'));
+app.use('/api/lender', require('./src/lender/lender.routes'));
 
 
 // ── 404 HANDLER ──────────────────────────────────────────────

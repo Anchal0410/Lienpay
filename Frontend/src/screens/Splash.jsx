@@ -27,8 +27,9 @@ export default function Splash({ onComplete }) {
       >
         {/* Logo mark */}
         <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 12, repeat: Infinity, ease: 'linear' }}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.2, duration: 0.8, ease: 'easeOut' }}
           style={{ display: 'inline-block', marginBottom: 24 }}
         >
           <LienzoLogoImage size={72} />

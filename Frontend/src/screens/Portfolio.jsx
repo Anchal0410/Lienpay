@@ -251,7 +251,7 @@ export default function Portfolio() {
                     <div>
                       <p style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 2 }}>LTV</p>
                       <p style={{ fontSize: 12, color: color }}>
-                        {holding.ltv_cap ? `${(parseFloat(holding.ltv_cap) * 100).toFixed(0)}%` : '—'}
+                        {holding.ltv_cap ? (typeof holding.ltv_cap === 'string' && holding.ltv_cap.includes('%') ? holding.ltv_cap : `${(parseFloat(holding.ltv_cap) > 1 ? parseFloat(holding.ltv_cap) : parseFloat(holding.ltv_cap) * 100).toFixed(0)}%`) : '—'}
                       </p>
                     </div>
                     <div>

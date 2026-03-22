@@ -11,6 +11,16 @@ const { logger, audit } = require('../../config/logger');
 // PSP bank must be CLOU-empanelled with NPCI.
 // ─────────────────────────────────────────────────────────────
 
+// ── HELPER: Calculate limit from ACTUALLY PLEDGED funds ──────
+// FIX: credit limit must reflect only pledged funds, not all eligible
+const calculatePledgedLimit = async (userId) => {
+  const pledgedRes = await query(`
+    SELECT COALESCE(SUM(eligible_value_at_pledge), 0) as total
+    FROM pledges WHERE user_id = $1 AND status = 'ACTIVE'
+  `, [userId]);
+  return Math.round(parseFloat(pledgedRes.rows[0]?.total || 0));
+};
+
 // ── STEP 1: Request NBFC Sanction ────────────────────────────
 const requestSanction = async (userId) => {
   const riskRes = await query(`
@@ -43,19 +53,23 @@ const requestSanction = async (userId) => {
 
   const collateral = collateralRes.rows[0];
 
+  // FIX: Calculate actual limit from pledged funds only
+  const pledgedLimit = await calculatePledgedLimit(userId);
+  const actualLimit = pledgedLimit > 0 ? Math.min(risk.approved_limit, pledgedLimit) : risk.approved_limit;
+
   const sanctionPayload = {
     customer_id:        userId,
     ckyc_id:            user.ckyc_id,
     full_name:          user.full_name,
     kyc_type:           user.kyc_method || 'AADHAAR_OTP',
     risk_decision_id:   risk.decision_id,
-    approved_limit:     risk.approved_limit,
+    approved_limit:     actualLimit,  // FIX: pledged-based limit
     risk_tier:          risk.risk_tier,
     apr:                risk.apr,
     collateral_pledges: parseInt(collateral.pledge_count),
     collateral_value:   Math.round(parseFloat(collateral.total_collateral)),
     bureau_score_band:  risk.bureau_score_band,
-    credit_line_type:   'CLOU',  // CLOU flag for NBFC
+    credit_line_type:   'CLOU',
   };
 
   const mode = process.env.NBFC_MODE || 'mock';
@@ -76,7 +90,7 @@ const requestSanction = async (userId) => {
   } else {
     sanctionResult = {
       sanction_id:      `NBFC_SANCTION_${Date.now()}`,
-      sanctioned_limit: risk.approved_limit,
+      sanctioned_limit: actualLimit,  // FIX: pledged-based limit
       apr:              risk.apr,
       nbfc_account_id:  `NBFC_ACC_${userId.slice(0, 8).toUpperCase()}`,
     };
@@ -158,6 +172,10 @@ const activateCreditLine = async (userId) => {
 
   const { approved_limit, apr } = riskRes.rows[0];
 
+  // FIX: Calculate actual limit from pledged funds only
+  const pledgedLimit = await calculatePledgedLimit(userId);
+  const actualLimit = pledgedLimit > 0 ? Math.min(approved_limit, pledgedLimit) : approved_limit;
+
   // Notify NBFC to activate
   const mode = process.env.NBFC_MODE || 'mock';
   let nbfcAccountId;
@@ -205,7 +223,7 @@ const activateCreditLine = async (userId) => {
       updated_at          = NOW()
     WHERE user_id = $1
   `, [
-    userId, nbfcAccountId, approved_limit, apr, vpa,
+    userId, nbfcAccountId, actualLimit, apr, vpa,
     process.env.PSP_BANK_NAME || 'YesBank',
     cycleStart, cycleEnd, dueDate,
   ]);
@@ -219,16 +237,16 @@ const activateCreditLine = async (userId) => {
   `, [userId]);
 
   await sendSMS(userId, 'CREDIT_ACTIVATED', {
-    limit: `₹${approved_limit.toLocaleString('en-IN')}`,
+    limit: `₹${actualLimit.toLocaleString('en-IN')}`,
     vpa,
   }).catch(() => {});
 
-  audit('CLOU_ACTIVATED', userId, { approved_limit, vpa, apr });
+  audit('CLOU_ACTIVATED', userId, { approved_limit: actualLimit, pledgedLimit, vpa, apr });
 
   return {
     account_id:       account.account_id,
-    credit_limit:     approved_limit,
-    available_credit: approved_limit,
+    credit_limit:     actualLimit,
+    available_credit: actualLimit,
     apr,
     upi_vpa:          vpa,
     clou_enabled:     true,

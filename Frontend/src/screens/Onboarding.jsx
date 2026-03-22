@@ -54,8 +54,21 @@ export default function Onboarding({ onComplete }) {
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep)
 
-  // Correct eligible calculation: value × ltvCap
-  const calcEligible = (h) => parseFloat(h.eligible_credit || h.current_value * (h.ltv_cap || 0.40))
+  // Correct eligible calculation
+  // Backend returns ltv_cap as "40%" string, eligible_credit as pre-calculated number
+  const parseLtv = (h) => {
+    const raw = h.ltv_cap
+    if (typeof raw === 'string' && raw.includes('%')) return parseFloat(raw) / 100
+    const num = parseFloat(raw || 0)
+    return num > 1 ? num / 100 : num  // handle both 0.40 and 40
+  }
+  const calcEligible = (h) => parseFloat(h.eligible_credit || Math.round(h.current_value * parseLtv(h)))
+  const formatLtv = (h) => {
+    const raw = h.ltv_cap
+    if (typeof raw === 'string' && raw.includes('%')) return raw  // already "40%"
+    const num = parseFloat(raw || 0)
+    return num > 1 ? `${num.toFixed(0)}%` : `${(num * 100).toFixed(0)}%`
+  }
   const selectedEligible = holdings.filter(h => selectedFolios.includes(h.folio_number) && h.is_eligible)
   const selectedCredit = selectedEligible.reduce((s, h) => s + calcEligible(h), 0)
 
@@ -233,11 +246,11 @@ export default function Onboarding({ onComplete }) {
               {/* Approved limit */}
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}
                 style={{ background: 'linear-gradient(135deg, var(--jade-dim), var(--jade-glow))', border: '1px solid var(--jade-border)', borderRadius: 20, padding: '20px', textAlign: 'center', marginBottom: 16 }}>
-                <p style={{ fontSize: 10, color: 'var(--jade)', letterSpacing: '2.5px', marginBottom: 6, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>APPROVED LIMIT</p>
+                <p style={{ fontSize: 10, color: 'var(--jade)', letterSpacing: '2.5px', marginBottom: 6, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>YOUR CREDIT LIMIT</p>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 42, color: 'var(--jade)', lineHeight: 1, marginBottom: 4 }}>
-                  ₹{(riskData?.approved_limit || 0).toLocaleString('en-IN')}
+                  ₹{selectedCredit > 0 ? fmtL(selectedCredit) : (riskData?.approved_limit || 0).toLocaleString('en-IN')}
                 </p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{riskData?.apr}% APR · Tier {riskData?.risk_tier}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{riskData?.apr}% APR · {riskData?.risk_tier === 'A' ? 'Prime' : riskData?.risk_tier === 'B' ? 'Standard' : 'Starter'} plan</p>
               </motion.div>
 
               {/* Fund list */}
@@ -272,7 +285,7 @@ export default function Onboarding({ onComplete }) {
                         </p>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                           <span style={{ fontSize: 9, color: color, fontWeight: 700, background: `${color}15`, padding: '2px 6px', borderRadius: 4 }}>
-                            {h.ltv_cap ? `${(parseFloat(h.ltv_cap) * 100).toFixed(0)}% LTV` : h.scheme_type?.replace(/_/g, ' ')}
+                            {h.ltv_cap ? `${formatLtv(h)} LTV` : h.scheme_type?.replace(/_/g, ' ')}
                           </span>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{h.rta}</span>
                         </div>
@@ -306,7 +319,7 @@ export default function Onboarding({ onComplete }) {
                     {selectedEligible.map((h, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginBottom: 2 }}>
                         <span>{h.scheme_name?.split(' ').slice(0, 2).join(' ')}</span>
-                        <span>₹{fmtL(h.current_value)} × {(parseFloat(h.ltv_cap || 0.4) * 100).toFixed(0)}% = <span style={{ color: 'var(--jade)' }}>₹{fmtL(calcEligible(h))}</span></span>
+                        <span>₹{fmtL(h.current_value)} × {formatLtv(h)} = <span style={{ color: 'var(--jade)' }}>₹{fmtL(calcEligible(h))}</span></span>
                       </div>
                     ))}
                   </div>
