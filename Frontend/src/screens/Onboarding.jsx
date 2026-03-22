@@ -9,7 +9,6 @@ import {
 } from '../api/client'
 import useStore from '../store/useStore'
 import { LiquidBlob } from '../components/LiquidUI'
-import { LienzoLogoImage } from '../components/Logo'
 
 const TYPE_COLORS = {
   EQUITY_LARGE_CAP: 'var(--jade)', EQUITY_MID_CAP: 'var(--amber)',

@@ -1,10 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
-import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
-import { LienzoLogoImage } from '../components/Logo'
-import toast from 'react-hot-toast'
 
 const fmt = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const fmtL = (n) => { const v = parseFloat(n||0); return v >= 100000 ? `${(v/100000).toFixed(2)}L` : fmt(v) }
@@ -19,7 +17,7 @@ const getGreeting = () => {
 
 export default function Dashboard({ onPay }) {
   const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth,
-          setTransactions, transactions, riskDecision, activeTab, setActiveTab } = useStore()
+          setTransactions, transactions, activeTab, setActiveTab } = useStore()
   const [loading, setLoading] = useState(!creditAccount)
   const scrollRef = useRef(null)
   const scrollY = useScrollY(scrollRef)

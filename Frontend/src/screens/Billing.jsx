@@ -105,7 +105,6 @@ export default function Billing() {
                   boxShadow: '0 6px 20px rgba(0,212,161,0.2)' }}>
                 {repaying ? 'Processing…' : `Repay ${formatCurrency(creditAccount.outstanding)}`}
               </motion.button>
-              </motion.button>
             )}
           </motion.div>
         )}
