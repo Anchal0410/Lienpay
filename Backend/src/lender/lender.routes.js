@@ -14,13 +14,13 @@ router.use(lenderAuth);
 
 router.get('/overview', async (req, res) => {
   try {
-    const [book, risk, collections, ltv] = await Promise.all([
-      query(`SELECT COUNT(*) as total_accounts, COALESCE(SUM(credit_limit), 0) as total_sanctioned, COALESCE(SUM(outstanding), 0) as total_outstanding, COALESCE(SUM(available_credit), 0) as total_undrawn, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active_accounts, COALESCE(AVG(credit_limit), 0) as avg_ticket_size FROM credit_accounts`),
-      query(`SELECT risk_tier, COUNT(*) as count, COALESCE(SUM(approved_limit), 0) as tier_exposure, AVG(apr) as avg_apr FROM risk_decisions rd JOIN credit_accounts ca ON ca.user_id = rd.user_id WHERE rd.status = 'APPROVED' GROUP BY risk_tier`),
-      query(`SELECT COUNT(*) as total_repayments, COALESCE(SUM(amount), 0) as total_collected, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') as repayments_30d, COALESCE(SUM(amount) FILTER (WHERE created_at > NOW() - INTERVAL '30 days'), 0) as collected_30d FROM repayments WHERE status = 'SUCCESS'`),
-      query(`SELECT COUNT(*) FILTER (WHERE ltv_ratio < 0.50) as safe, COUNT(*) FILTER (WHERE ltv_ratio >= 0.50 AND ltv_ratio < 0.75) as watch, COUNT(*) FILTER (WHERE ltv_ratio >= 0.75 AND ltv_ratio < 0.90) as amber, COUNT(*) FILTER (WHERE ltv_ratio >= 0.90) as red, AVG(ltv_ratio) as avg_ltv FROM ltv_snapshots WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ltv_snapshots)`),
-    ]);
-    res.json({ success: true, data: { book: book.rows[0], risk_tiers: risk.rows, collections: collections.rows[0], ltv_health: ltv.rows[0], timestamp: new Date().toISOString() } });
+    // Each query independent — one failure doesn't kill all
+    let book = { rows: [{}] }, risk = { rows: [] }, collections = { rows: [{}] }, ltv = { rows: [{}] };
+    try { book = await query(`SELECT COUNT(*) as total_accounts, COALESCE(SUM(credit_limit), 0) as total_sanctioned, COALESCE(SUM(outstanding), 0) as total_outstanding, COALESCE(SUM(available_credit), 0) as total_undrawn, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active_accounts, COALESCE(AVG(credit_limit), 0) as avg_ticket_size FROM credit_accounts`); } catch(e) { logger.error('Lender book query:', e.message); }
+    try { risk = await query(`SELECT risk_tier, COUNT(*) as count, COALESCE(SUM(approved_limit), 0) as tier_exposure, AVG(apr) as avg_apr FROM risk_decisions rd JOIN credit_accounts ca ON ca.user_id = rd.user_id WHERE rd.decision = 'APPROVED' GROUP BY risk_tier`); } catch(e) { logger.error('Lender risk query:', e.message); }
+    try { collections = await query(`SELECT COUNT(*) as total_repayments, COALESCE(SUM(amount), 0) as total_collected, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') as repayments_30d, COALESCE(SUM(amount) FILTER (WHERE created_at > NOW() - INTERVAL '30 days'), 0) as collected_30d FROM repayments WHERE status = 'SUCCESS'`); } catch(e) { logger.error('Lender collections query:', e.message); }
+    try { ltv = await query(`SELECT COUNT(*) FILTER (WHERE ltv_ratio < 0.50) as safe, COUNT(*) FILTER (WHERE ltv_ratio >= 0.50 AND ltv_ratio < 0.75) as watch, COUNT(*) FILTER (WHERE ltv_ratio >= 0.75 AND ltv_ratio < 0.90) as amber, COUNT(*) FILTER (WHERE ltv_ratio >= 0.90) as red FROM ltv_snapshots WHERE snapshot_date = (SELECT MAX(snapshot_date) FROM ltv_snapshots)`); } catch(e) { logger.error('Lender ltv query:', e.message); }
+    res.json({ success: true, data: { book: book.rows[0], risk_tiers: risk.rows, collections: collections.rows[0], ltv_health: ltv.rows[0] || { safe: 0, watch: 0, amber: 0, red: 0 }, timestamp: new Date().toISOString() } });
   } catch (err) { logger.error('Lender overview error:', err.message); res.status(500).json({ success: false, error: err.message }); }
 });
 

@@ -14,15 +14,16 @@ router.use(adminAuth);
 
 router.get('/overview', async (req, res) => {
   try {
-    const [users, sessions, otps, credit, txns, pledges, statements] = await Promise.all([
-      query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE account_status = 'ONBOARDING') as onboarding, COUNT(*) FILTER (WHERE kyc_status = 'VERIFIED') as kyc_done, COUNT(*) FILTER (WHERE account_status = 'CREDIT_ACTIVE') as active, COUNT(*) FILTER (WHERE account_status = 'OVERDUE') as overdue, COUNT(*) FILTER (WHERE account_status = 'MARGIN_CALL') as margin_call, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_today FROM users WHERE deleted_at IS NULL`),
-      query(`SELECT COUNT(*) as active_sessions FROM sessions WHERE is_active = true AND expires_at > NOW()`),
-      query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'VERIFIED') as verified, COUNT(*) FILTER (WHERE status = 'LOCKED') as locked, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today FROM otp_logs`),
-      query(`SELECT COUNT(*) as total_accounts, COALESCE(SUM(credit_limit), 0) as total_limit, COALESCE(SUM(outstanding), 0) as total_outstanding, COALESCE(SUM(available_credit), 0) as total_available, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active FROM credit_accounts`),
-      query(`SELECT COUNT(*) as total, COALESCE(SUM(amount), 0) as total_volume, COUNT(*) FILTER (WHERE status = 'SETTLED') as settled, COUNT(*) FILTER (WHERE status = 'FAILED') as failed, COUNT(*) FILTER (WHERE initiated_at > NOW() - INTERVAL '24 hours') as today, COALESCE(SUM(amount) FILTER (WHERE initiated_at > NOW() - INTERVAL '7 days'), 0) as week_volume FROM transactions`),
-      query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active, COUNT(*) FILTER (WHERE rta = 'CAMS') as cams, COUNT(*) FILTER (WHERE rta = 'KFINTECH') as kfintech FROM pledges`),
-      query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'PAID') as paid, COUNT(*) FILTER (WHERE status = 'OVERDUE') as overdue, COALESCE(SUM(total_due), 0) as total_billed FROM statements`),
-    ]);
+    // Each query independent — one failure doesn't kill all
+    const empty = { rows: [{}] };
+    let users=empty,sessions=empty,otps=empty,credit=empty,txns=empty,pledges=empty,statements=empty;
+    try { users = await query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE account_status = 'ONBOARDING') as onboarding, COUNT(*) FILTER (WHERE kyc_status = 'VERIFIED') as kyc_done, COUNT(*) FILTER (WHERE account_status = 'CREDIT_ACTIVE') as active, COUNT(*) FILTER (WHERE account_status = 'OVERDUE') as overdue, COUNT(*) FILTER (WHERE account_status = 'MARGIN_CALL') as margin_call, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as new_today FROM users WHERE deleted_at IS NULL`); } catch(e) { logger.error('Admin users query:', e.message); }
+    try { sessions = await query(`SELECT COUNT(*) as active_sessions FROM sessions WHERE is_active = true AND expires_at > NOW()`); } catch(e) {}
+    try { otps = await query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'VERIFIED') as verified, COUNT(*) FILTER (WHERE status = 'LOCKED') as locked, COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today FROM otp_logs`); } catch(e) {}
+    try { credit = await query(`SELECT COUNT(*) as total_accounts, COALESCE(SUM(credit_limit), 0) as total_limit, COALESCE(SUM(outstanding), 0) as total_outstanding, COALESCE(SUM(available_credit), 0) as total_available, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active, COUNT(*) FILTER (WHERE status = 'FROZEN') as frozen FROM credit_accounts`); } catch(e) {}
+    try { txns = await query(`SELECT COUNT(*) as total, COALESCE(SUM(amount), 0) as total_volume, COUNT(*) FILTER (WHERE status = 'SETTLED') as settled, COUNT(*) FILTER (WHERE status = 'FAILED') as failed, COUNT(*) FILTER (WHERE initiated_at > NOW() - INTERVAL '24 hours') as today, COALESCE(SUM(amount) FILTER (WHERE initiated_at > NOW() - INTERVAL '7 days'), 0) as week_volume FROM transactions`); } catch(e) {}
+    try { pledges = await query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE status = 'ACTIVE') as active, COUNT(*) FILTER (WHERE rta = 'CAMS') as cams, COUNT(*) FILTER (WHERE rta = 'KFINTECH') as kfintech FROM pledges`); } catch(e) {}
+    try { statements = await query(`SELECT COUNT(*) as total, COALESCE(SUM(CASE WHEN status = 'PAID' THEN 1 ELSE 0 END), 0) as paid, COALESCE(SUM(CASE WHEN status = 'OVERDUE' THEN 1 ELSE 0 END), 0) as overdue FROM statements`); } catch(e) {}
     res.json({ success: true, data: { users: users.rows[0], sessions: sessions.rows[0], otps: otps.rows[0], credit: credit.rows[0], transactions: txns.rows[0], pledges: pledges.rows[0], statements: statements.rows[0], timestamp: new Date().toISOString() } });
   } catch (err) { logger.error('Admin overview error:', err.message); res.status(500).json({ success: false, error: err.message }); }
 });
@@ -82,7 +83,7 @@ router.get('/transactions', async (req, res) => {
 
 router.get('/risk-distribution', async (req, res) => {
   try {
-    const result = await query(`SELECT risk_tier, COUNT(*) as count, AVG(approved_limit) as avg_limit, AVG(apr) as avg_apr FROM risk_decisions WHERE status = 'APPROVED' GROUP BY risk_tier ORDER BY risk_tier`);
+    const result = await query(`SELECT risk_tier, COUNT(*) as count, AVG(approved_limit) as avg_limit, AVG(apr) as avg_apr FROM risk_decisions WHERE decision = 'APPROVED' GROUP BY risk_tier ORDER BY risk_tier`);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
