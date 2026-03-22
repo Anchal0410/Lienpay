@@ -306,9 +306,12 @@ const checkLTVHealth = async (userId, accountId) => {
   }
 
   // Get current portfolio value (pledged holdings)
+  // FIX: COALESCE nav_history with mf_holdings.nav_at_fetch — in mock mode
+  // nav_history may have no entry for today, causing NULL nav → 0 → false margin call
   const pledgesRes = await query(`
-    SELECT p.isin, p.units_pledged, n.nav_value as current_nav,
-           mh.ltv_cap, mh.scheme_type
+    SELECT p.isin, p.units_pledged,
+           COALESCE(n.nav_value, mh.nav_at_fetch) as current_nav,
+           mh.ltv_cap, mh.scheme_type, mh.nav_at_fetch
     FROM pledges p
     JOIN mf_holdings mh ON mh.folio_number = p.folio_number AND mh.user_id = p.user_id
     LEFT JOIN nav_history n ON n.isin = p.isin AND n.nav_date = CURRENT_DATE
@@ -331,6 +334,10 @@ const checkLTVHealth = async (userId, accountId) => {
   }, 0);
 
   // Current LTV ratio (outstanding vs max eligible)
+  // Guard against division by zero — if maxEligible is 0, status is GREEN (data issue, not margin call)
+  if (maxEligible <= 0) {
+    return { status: 'GREEN', action_required: false, ltv_ratio: 0, outstanding, current_pledge_value: Math.round(currentPledgeValue), max_eligible: 0, message: 'NAV data pending. Portfolio health will update once NAV is refreshed.' };
+  }
   const ltvRatio = outstanding / maxEligible;
 
   // Drawdown calculation from peak for notifications

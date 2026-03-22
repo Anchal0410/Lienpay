@@ -21,6 +21,11 @@ const request = async (method, path, body) => {
       localStorage.removeItem('lp_user')
       window.location.href = '/'
     }
+    // Parse validation errors (422) — show specific field messages
+    if (res.status === 422 && data.errors && Array.isArray(data.errors)) {
+      const msgs = data.errors.map(e => e.msg || e.message).filter(Boolean)
+      throw new Error(msgs.join('. ') || 'Validation failed')
+    }
     throw new Error(data.error || data.message || 'Something went wrong')
   }
 

@@ -13,6 +13,7 @@ export default function Auth() {
   const [otp, setOtp]       = useState(['', '', '', '', '', ''])
   const [loading, setLoading] = useState(false)
   const otpRefs = useRef([])
+  const verifyingRef = useRef(false)  // guard against double-fire
 
   const handleSendOTP = async () => {
     if (mobile.length !== 10) return toast.error('Enter a valid 10-digit mobile number')
@@ -48,6 +49,8 @@ export default function Auth() {
   const handleVerify = async (code) => {
     const otpCode = code || otp.join('')
     if (otpCode.length !== 6) return
+    if (verifyingRef.current) return  // prevent double-fire
+    verifyingRef.current = true
     setLoading(true)
     try {
       const res = await verifyOTP(mobile, otpCode)
@@ -59,6 +62,7 @@ export default function Auth() {
       toast.error(err.message)
       setOtp(['', '', '', '', '', ''])
       otpRefs.current[0]?.focus()
+      verifyingRef.current = false  // allow retry on failure
     } finally {
       setLoading(false)
     }

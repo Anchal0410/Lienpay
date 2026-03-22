@@ -44,6 +44,9 @@
   --font-sans: 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
+  /* Backward-compat aliases for original screens */
+  --font-serif: 'Fraunces', Georgia, serif;
+
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }

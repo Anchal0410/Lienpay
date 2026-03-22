@@ -304,17 +304,19 @@ export default function Pay({ onBack, onSuccess }) {
           {/* SUCCESS */}
           {step === 'success' && (
             <motion.div key="success" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ textAlign: 'center', padding: '40px 20px' }}>
-              <div style={{ position: 'relative', width: 120, height: 120, margin: '0 auto 28px' }}>
+              <div style={{ position: 'relative', width: 100, height: 100, margin: '0 auto 28px' }}>
+                {/* Pulse rings — gentler, no overflow */}
                 {[0,1,2].map(i => (
-                  <motion.div key={i} initial={{ scale: 0.8, opacity: 0.7 }} animate={{ scale: 3, opacity: 0 }}
-                    transition={{ duration: 2.5, repeat: Infinity, delay: i * 0.7, ease: 'easeOut' }}
-                    style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1.5px solid var(--jade)' }} />
+                  <motion.div key={i} initial={{ scale: 1, opacity: 0.4 }} animate={{ scale: 2, opacity: 0 }}
+                    transition={{ duration: 2, repeat: Infinity, delay: i * 0.6, ease: 'easeOut' }}
+                    style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '1px solid var(--jade)', willChange: 'transform, opacity' }} />
                 ))}
-                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 350, damping: 22 }}
+                {/* Check circle */}
+                <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 300, damping: 20 }}
                   style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%', borderRadius: '50%',
-                    background: 'radial-gradient(circle, rgba(0,200,150,0.25), rgba(0,200,150,0.05))',
+                    background: 'var(--jade-dim)',
                     border: '2px solid var(--jade)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    boxShadow: '0 0 50px rgba(0,200,150,0.4)', fontSize: 52, color: 'var(--jade)' }}>
+                    boxShadow: '0 0 40px rgba(0,212,161,0.3)', fontSize: 44, color: 'var(--jade)' }}>
                   ✓
                 </motion.div>
               </div>

@@ -76,9 +76,6 @@ export default function Dashboard({ onPay }) {
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <button style={{ marginTop: 8, width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            </button>
           </div>
         </div>
 
@@ -120,9 +117,23 @@ export default function Dashboard({ onPay }) {
                 border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
                 borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
-                {ltv.status === 'RED' ? '⚠️ Margin Call' : '⚡ Alert'}
+                {ltv.status === 'RED' ? '⚠️ Margin Call — Action Required' : '⚡ Portfolio Alert'}
               </p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ltv.message}</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>{ltv.message}</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <motion.button whileTap={{ scale: 0.96 }}
+                  onClick={() => setActiveTab('billing')}
+                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)' }}>
+                  Repay Now
+                </motion.button>
+                <motion.button whileTap={{ scale: 0.96 }}
+                  onClick={() => setActiveTab('portfolio')}
+                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}>
+                  Add Collateral
+                </motion.button>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -211,9 +222,9 @@ export default function Dashboard({ onPay }) {
           )}
         </div>
 
-        {/* Portfolio health peek */}
-        <ScrollReveal scrollY={scrollY} triggerAt={500}>
-          <div style={{ background: 'linear-gradient(135deg, var(--jade-glow), transparent)', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '18px', marginBottom: 24 }}>
+        {/* Portfolio health peek — always visible */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.5 }}>
+          <div style={{ background: 'linear-gradient(135deg, rgba(0,212,161,0.08), rgba(0,212,161,0.03))', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '18px', marginBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -226,7 +237,7 @@ export default function Dashboard({ onPay }) {
             </p>
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Pledged portfolio value</p>
           </div>
-        </ScrollReveal>
+        </motion.div>
       </div>
     </div>
   )
