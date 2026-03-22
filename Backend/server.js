@@ -18,9 +18,22 @@ const PORT = process.env.PORT || 3000;
 // ── SECURITY MIDDLEWARE ──────────────────────────────────────
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || '*',
+  origin: function(origin, callback) {
+    // Allow requests from any lienpay domain or no origin (Postman/server)
+    const allowed = [
+      process.env.FRONTEND_URL,
+      'https://lien-pay.vercel.app',
+      'https://lienpay-admin.vercel.app',
+      'https://lienpay-lender.vercel.app',
+    ].filter(Boolean);
+    if (!origin || allowed.some(a => origin.startsWith(a.replace(/\/$/, ''))) || origin.includes('lienpay') || origin.includes('vercel.app') || origin.includes('localhost')) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now — tighten in production
+    }
+  },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id', 'x-device-os', 'x-app-version'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-device-id', 'x-device-os', 'x-app-version', 'x-admin-token', 'x-lender-token'],
 }));
 app.use(compression());
 
