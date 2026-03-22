@@ -223,7 +223,33 @@ const notifyNBFCOfCollateral = async (userId, pledgeIds) => {
     WHERE pledge_id = ANY($2)
   `, [collateralId, pledgeIds]);
 
-  return { collateral_id: collateralId, total_eligible_value: Math.round(totalEligibleValue) };
+  // FIX: Recalculate credit limit from ALL active pledges
+  const allPledged = await query(`
+    SELECT COALESCE(SUM(eligible_value_at_pledge), 0) as total_eligible
+    FROM pledges WHERE user_id = $1 AND status = 'ACTIVE'
+  `, [userId]);
+  const newLimit = Math.round(parseFloat(allPledged.rows[0]?.total_eligible || 0));
+
+  // Update credit_accounts with new limit
+  const accountUpdate = await query(`
+    UPDATE credit_accounts
+    SET credit_limit = $2,
+        available_credit = $2 - COALESCE(outstanding, 0),
+        updated_at = NOW()
+    WHERE user_id = $1 AND status = 'ACTIVE'
+    RETURNING credit_limit, available_credit, outstanding
+  `, [userId, newLimit]);
+
+  if (accountUpdate.rows.length) {
+    logger.info('💰 Credit limit recalculated after pledge', {
+      user_id: userId,
+      new_limit: newLimit,
+      outstanding: accountUpdate.rows[0].outstanding,
+      available: accountUpdate.rows[0].available_credit,
+    });
+  }
+
+  return { collateral_id: collateralId, total_eligible_value: Math.round(totalEligibleValue), new_credit_limit: newLimit };
 };
 
 // ── RELEASE PLEDGES (on account closure) ─────────────────────

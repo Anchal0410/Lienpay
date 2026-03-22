@@ -39,7 +39,7 @@ app.set('trust proxy', 1);
 // ── GLOBAL RATE LIMITER ──────────────────────────────────────
 const globalLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max:      parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  max:      parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500,
   message:  { success: false, error: 'Too many requests. Please try again later.' },
   standardHeaders: true,
   legacyHeaders:   false,
@@ -69,6 +69,7 @@ app.use('/api/billing',   require('./src/billing/billing.routes'));
 
 // Dashboard APIs
 app.use('/api/admin',  require('./src/admin/admin.routes'));
+app.use('/api/admin/stress', require('./src/admin/stress.routes'));
 app.use('/api/lender', require('./src/lender/lender.routes'));
 
 

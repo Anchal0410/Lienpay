@@ -159,6 +159,18 @@ const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, 
 
   audit('TXN_INITIATED', userId, { txn_id: txnId, amount, merchant_vpa: merchantVPA });
 
+  // Visible in Railway logs
+  console.log('\n' + '═'.repeat(60));
+  console.log(`💳 PAYMENT INITIATED`);
+  console.log(`   Txn ID:    ${txnId}`);
+  console.log(`   Amount:    ₹${amount}`);
+  console.log(`   Merchant:  ${merchantName} (${merchantVPA})`);
+  console.log(`   Payer VPA: ${account.upi_vpa}`);
+  console.log(`   Free Period: ${isInFreePeriod ? 'YES — 30 days 0%' : 'NO — interest applies'}`);
+  console.log(`   Status:    PRE_AUTHORISED → awaiting PIN`);
+  console.log(`   Routing:   WORLD 1 (CLOU)`);
+  console.log('═'.repeat(60) + '\n');
+
   return result;
 };
 
@@ -273,6 +285,16 @@ const mockPaymentSuccess = async (txnId, userId) => {
 
   // Now settle via webhook handler (PENDING → SETTLED is valid)
   await handleSettlementWebhook({ lsp_txn_ref: txn.lsp_txn_ref, utr, status: 'SUCCESS', amount: txn.amount, timestamp: new Date() });
+
+  console.log('\n' + '═'.repeat(60));
+  console.log(`✅ PAYMENT SETTLED`);
+  console.log(`   Txn ID:    ${txnId}`);
+  console.log(`   UTR:       ${utr}`);
+  console.log(`   Amount:    ₹${txn.amount}`);
+  console.log(`   Merchant:  ${txn.merchant_name} (${txn.merchant_vpa})`);
+  console.log(`   Status:    SETTLED`);
+  console.log('═'.repeat(60) + '\n');
+
   return { txn_id: txnId, utr, status: 'SETTLED', routing_model: 'WORLD1' };
 };
 

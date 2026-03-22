@@ -39,6 +39,7 @@ const post = (path, body)  => request('POST', path, body)
 export const sendOTP   = (mobile)      => post('/api/auth/send-otp',    { mobile })
 export const verifyOTP = (mobile, otp) => post('/api/auth/verify-otp',  { mobile, otp })
 export const logout    = ()            => post('/api/auth/logout',       {})
+export const getMe     = ()            => get('/api/auth/me')
 
 // ── KYC ───────────────────────────────────────
 export const submitKYCProfile  = (data) => post('/api/kyc/profile',              data)

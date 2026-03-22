@@ -1,10 +1,22 @@
 import { motion } from 'framer-motion'
 import useStore from '../store/useStore'
-import { logout } from '../api/client'
+import { logout, getMe } from '../api/client'
+import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 
 export default function Profile({ onSettings }) {
   const { user, creditAccount, riskDecision, clearAuth, setOnboardingStep } = useStore()
+  const [profile, setProfile] = useState(null)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await getMe()
+        setProfile(res.data)
+      } catch(e) {}
+    }
+    load()
+  }, [])
 
   const handleLogout = async () => {
     try { await logout() } catch (_) {}
@@ -32,13 +44,16 @@ export default function Profile({ onSettings }) {
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 200 }}
             style={{ width: 76, height: 76, borderRadius: 24, background: 'linear-gradient(135deg, var(--jade-dim), rgba(201,164,73,0.1))',
               border: '1.5px solid var(--border-jade)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 32, marginBottom: 14 }}>
-            👤
+              fontSize: 28, fontFamily: 'var(--font-display)', color: 'var(--jade)', marginBottom: 14 }}>
+            {(profile?.full_name || user?.full_name || '')[0]?.toUpperCase() || '👤'}
           </motion.div>
 
-          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 24, fontWeight: 400, marginBottom: 6 }}>
-            {user?.full_name || user?.mobile ? `+91 ${user?.mobile}` : 'Account'}
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 400, marginBottom: 4 }}>
+            {profile?.full_name || user?.full_name || 'User'}
           </h2>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+            {profile?.mobile ? `+91 ${profile.mobile}` : user?.mobile ? `+91 ${user.mobile}` : ''}
+          </p>
 
 
         </motion.div>

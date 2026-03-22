@@ -130,6 +130,25 @@ export default function Portfolio() {
             </div>
           </div>
 
+          {/* Mean LTV */}
+          {(() => {
+            const pledgedHoldings = holdings.filter(h => isPledged(h.folio_number))
+            const totalPledgedValue = pledgedHoldings.reduce((s, h) => s + parseFloat(h.value_at_fetch || 0), 0)
+            const weightedLtv = totalPledgedValue > 0
+              ? pledgedHoldings.reduce((s, h) => {
+                  const raw = h.ltv_cap
+                  const ltvNum = typeof raw === 'string' && raw.includes('%') ? parseFloat(raw) / 100 : (parseFloat(raw) > 1 ? parseFloat(raw) / 100 : parseFloat(raw || 0))
+                  return s + (ltvNum * parseFloat(h.value_at_fetch || 0))
+                }, 0) / totalPledgedValue
+              : 0
+            return weightedLtv > 0 ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', marginBottom: 10, borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Weighted avg. LTV cap</span>
+                <span style={{ fontSize: 13, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{(weightedLtv * 100).toFixed(1)}%</span>
+              </div>
+            ) : null
+          })()}
+
           {/* LTV Bar */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>

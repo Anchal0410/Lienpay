@@ -205,6 +205,14 @@ const mockRepayment = async (userId, amount) => {
 
   await confirmRepayment(result.payment_ref, utr, amount);
 
+  console.log('\n' + '═'.repeat(60));
+  console.log(`💰 REPAYMENT PROCESSED`);
+  console.log(`   User:      ${userId}`);
+  console.log(`   Amount:    ₹${amount}`);
+  console.log(`   UTR:       ${utr}`);
+  console.log(`   Status:    SUCCESS`);
+  console.log('═'.repeat(60) + '\n');
+
   return {
     repayment_id: result.repayment_id,
     amount,
