@@ -2,70 +2,27 @@ import { useEffect, useState, useRef } from 'react'
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
-import CreditCard3D from '../components/CreditCard3D'
+import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
+import { LienzoLogoImage } from '../components/Logo'
 import toast from 'react-hot-toast'
 
-const formatCurrency = (n) =>
-  `₹${parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+const fmt = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
+const fmtL = (n) => { const v = parseFloat(n||0); return v >= 100000 ? `${(v/100000).toFixed(2)}L` : fmt(v) }
 
 const getGreeting = () => {
   const h = new Date().getHours()
-  if (h >= 5  && h < 12) return { text: 'Good morning',   sub: 'Your wealth is growing' }
-  if (h >= 12 && h < 17) return { text: 'Good afternoon', sub: 'Markets are moving' }
-  if (h >= 17 && h < 21) return { text: 'Good evening',   sub: 'End of a great day' }
-  return { text: 'Good night', sub: 'Markets rest, wealth grows' }
-}
-
-function AnimatedNumber({ value }) {
-  const [display, setDisplay] = useState(0)
-  const prevRef = useRef(0)
-  useEffect(() => {
-    const target = parseFloat(value) || 0
-    const start  = prevRef.current
-    const duration = 1000
-    const startTime = Date.now()
-    const tick = () => {
-      const elapsed  = Date.now() - startTime
-      const progress = Math.min(elapsed / duration, 1)
-      const eased    = 1 - Math.pow(1 - progress, 4)
-      const current  = Math.round(start + (target - start) * eased)
-      setDisplay(current)
-      if (progress < 1) requestAnimationFrame(tick)
-      else prevRef.current = target
-    }
-    requestAnimationFrame(tick)
-  }, [value])
-  return <span>₹{display.toLocaleString('en-IN')}</span>
-}
-
-function LiquidOrb({ color, size, style = {} }) {
-  return (
-    <motion.div
-      animate={{ scale: [1, 1.2, 0.9, 1.1, 1], rotate: [0, 15, -10, 5, 0] }}
-      transition={{ duration: 10 + Math.random() * 4, repeat: Infinity, ease: 'easeInOut' }}
-      style={{
-        position: 'absolute',
-        width: size, height: size,
-        borderRadius: '50%',
-        background: `radial-gradient(circle at 35% 35%, ${color}35, ${color}08)`,
-        filter: `blur(${size / 3}px)`,
-        pointerEvents: 'none',
-        ...style,
-      }}
-    />
-  )
+  if (h >= 5 && h < 12) return 'Good morning'
+  if (h >= 12 && h < 17) return 'Good afternoon'
+  if (h >= 17 && h < 21) return 'Good evening'
+  return 'Good night'
 }
 
 export default function Dashboard({ onPay }) {
   const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth,
-          setTransactions, transactions, riskDecision } = useStore()
+          setTransactions, transactions, riskDecision, activeTab, setActiveTab } = useStore()
   const [loading, setLoading] = useState(!creditAccount)
   const scrollRef = useRef(null)
-  const { scrollY } = useScroll({ container: scrollRef })
-  const cardScale   = useTransform(scrollY, [0, 100], [1, 0.94])
-  const cardOpacity = useTransform(scrollY, [0, 130], [1, 0.55])
-  const headerY     = useTransform(scrollY, [0, 100], [0, -8])
-  const greeting    = getGreeting()
+  const scrollY = useScrollY(scrollRef)
 
   useEffect(() => {
     const load = async () => {
@@ -76,22 +33,27 @@ export default function Dashboard({ onPay }) {
         setCreditAccount(creditRes.data)
         setLTVHealth(ltvRes.data)
         setTransactions(txnRes.data?.transactions || [])
-      } catch (err) { toast.error('Failed to load') }
+      } catch (err) { /* silent */ }
       finally { setLoading(false) }
     }
     load()
   }, [])
 
-  const account     = creditAccount
-  const available   = parseFloat(account?.available_credit || 0)
+  const account = creditAccount
+  const available = parseFloat(account?.available_credit || 0)
   const creditLimit = parseFloat(account?.credit_limit || 0)
   const outstanding = parseFloat(account?.outstanding || 0)
-  const usedPct     = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0
-  const ltv         = ltvHealth
-  const ltvColor    = ltv?.status === 'RED' ? '#EF4444' : ltv?.status === 'AMBER' ? '#F59E0B' : '#00C896'
+  const ltv = ltvHealth
+  const ltvRatio = ltv?.ltv_ratio || 0
+  const ltvColor = ltv?.status === 'RED' ? 'var(--red)' : ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
+
+  // Scroll-driven transforms
+  const ringScale = Math.max(0.88, 1 - scrollY / 500)
+  const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
+  const headerY = Math.min(0, -scrollY * 0.12)
 
   if (loading) return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-base)' }}>
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-void)' }}>
       <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
         style={{ width: 36, height: 36, border: '2px solid var(--bg-elevated)', borderTopColor: 'var(--jade)', borderRadius: '50%' }} />
     </div>
@@ -99,134 +61,115 @@ export default function Dashboard({ onPay }) {
 
   return (
     <div ref={scrollRef} className="screen">
-      {/* Liquid background */}
+      {/* Liquid blobs — parallax with scroll */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
-        <LiquidOrb color="#00C896" size={320} style={{ top: -80, left: -80 }} />
-        <LiquidOrb color="#C9A449" size={220} style={{ top: 400, right: -60 }} />
-        <LiquidOrb color="#00C896" size={180} style={{ bottom: 200, left: 40 }} />
+        <LiquidBlob size={320} color="var(--jade)" top={`${-100 - scrollY * 0.2}px`} right="-80px" />
+        <LiquidBlob size={200} color="var(--jade)" top={`${400 - scrollY * 0.1}px`} left="-60px" delay={3} />
+        <LiquidBlob size={160} color="#4DA8FF" top={`${700 - scrollY * 0.15}px`} right="-30px" delay={5} />
       </div>
 
-      <div style={{ position: 'relative', zIndex: 1, padding: '0 20px' }}>
-
-        {/* Header */}
-        <motion.div style={{ y: headerY }} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
-          style2={{ paddingTop: 20, paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div style={{ paddingTop: 20, paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-            <div>
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
-                style={{ fontSize: 11, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 4 }}>
-                LIENPAY
-              </motion.p>
-              <motion.h1 initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 }}
-                style={{ fontFamily: 'var(--font-serif)', fontSize: 34, fontWeight: 400, lineHeight: 1.1, marginBottom: 3 }}>
-                {greeting.text}
-              </motion.h1>
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-                style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                {greeting.sub}
-              </motion.p>
-            </div>
-
-            {/* LTV pulse dot */}
-            <motion.div initial={{ scale: 0, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ delay: 0.4, type: 'spring' }}
-              style={{ width: 46, height: 46, borderRadius: '50%', background: `radial-gradient(circle, ${ltvColor}20, transparent)`,
-                border: `1.5px solid ${ltvColor}50`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 20 }}>
-              <motion.div animate={{ scale: [1, 1.4, 1], opacity: [1, 0.6, 1] }} transition={{ duration: 2.5, repeat: Infinity }}
-                style={{ width: 12, height: 12, borderRadius: '50%', background: ltvColor, boxShadow: `0 0 10px ${ltvColor}` }} />
-            </motion.div>
+      <div style={{ position: 'relative', zIndex: 1, padding: '0 22px' }}>
+        {/* Header — parallax shift */}
+        <div style={{ paddingTop: 20, paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', transform: `translateY(${headerY}px)` }}>
+          <div>
+            <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>LIENPAY</p>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
-        </motion.div>
-
-        {/* Card with scroll effect */}
-        <motion.div style={{ scale: cardScale, opacity: cardOpacity, transformOrigin: 'center top', marginBottom: 18 }}>
-          <CreditCard3D creditLimit={creditLimit} available={available} vpa={account?.upi_vpa} tier={riskDecision?.risk_tier} />
-        </motion.div>
-
-        {/* Available — Hero */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          style={{
-            background: 'linear-gradient(135deg, rgba(0,200,150,0.07), rgba(0,200,150,0.02))',
-            border: '1px solid rgba(0,200,150,0.18)', borderRadius: 24,
-            padding: '22px 22px', marginBottom: 14, position: 'relative', overflow: 'hidden',
-          }}>
-          <motion.div animate={{ x: [0, 10, -5, 0], y: [0, -8, 4, 0] }} transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-            style={{ position: 'absolute', top: -20, right: -20, width: 100, height: 100, borderRadius: '50%',
-              background: 'radial-gradient(circle, rgba(0,200,150,0.15), transparent)', filter: 'blur(15px)' }} />
-          <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2.5px', marginBottom: 8 }}>AVAILABLE CREDIT</p>
-          <p style={{ fontFamily: 'var(--font-serif)', fontSize: 46, lineHeight: 1, marginBottom: 10, color: 'var(--text-primary)' }}>
-            <AnimatedNumber value={available} />
-          </p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
-              <motion.div initial={{ width: 0 }} animate={{ width: `${usedPct}%` }} transition={{ duration: 1.4, ease: 'easeOut', delay: 0.6 }}
-                style={{ height: '100%', borderRadius: 2, background: usedPct > 80 ? 'linear-gradient(90deg,#EF4444,#DC2626)' : 'linear-gradient(90deg,var(--jade),#00A878)' }} />
-            </div>
-            <p style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>{usedPct.toFixed(0)}% used</p>
+          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <button onClick={() => setActiveTab('settings')} style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--bg-surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            </button>
           </div>
-        </motion.div>
+        </div>
+
+        {/* Credit Ring — scales on scroll */}
+        <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 8, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
+          <CreditRing limit={creditLimit} available={available} />
+        </div>
+
+        {/* CLOU badge */}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)' }}>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--jade)', animation: 'breathe 3s ease-in-out infinite' }} />
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--jade)', letterSpacing: '1.5px' }}>CLOU ACTIVE</span>
+          </div>
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Closed credit line · Only inside LienPay</p>
+        </div>
 
         {/* Stats */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}
-          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-          {[
-            { icon: '◈', label: 'OUTSTANDING', value: formatCurrency(outstanding), accent: outstanding > 0 ? 'var(--gold)' : 'var(--text-secondary)' },
-            { icon: '◎', label: 'VS CREDIT CARDS', value: 'Save 55%+', accent: 'var(--jade)' },
-          ].map((s, i) => (
-            <motion.div key={i} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}
-              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px', cursor: 'pointer' }}>
-              <p style={{ fontSize: 20, marginBottom: 10, opacity: 0.4 }}>{s.icon}</p>
-              <p style={{ fontSize: 20, fontWeight: 800, color: s.accent, marginBottom: 4 }}>{s.value}</p>
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1.5px' }}>{s.label}</p>
-            </motion.div>
-          ))}
-        </motion.div>
+        <ScrollReveal scrollY={scrollY} triggerAt={0}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
+            {[
+              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+              { l: 'LTV RATIO', v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
+              { l: 'APR', v: `${account?.apr || '15.99'}%`, c: 'var(--text-secondary)' },
+            ].map((s, i) => (
+              <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
+                <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 6 }}>{s.l}</p>
+                <p style={{ fontSize: 16, fontWeight: 600, color: s.c, fontFamily: 'var(--font-mono)' }}>{s.v}</p>
+              </div>
+            ))}
+          </div>
+        </ScrollReveal>
 
-        {/* PAY CTA */}
-        <motion.button
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
-          whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,200,150,0.45)' }}
-          whileTap={{ scale: 0.96 }}
-          onClick={onPay}
-          style={{
-            width: '100%', height: 70, borderRadius: 22,
-            background: 'linear-gradient(135deg, #00C896 0%, #00A878 60%, #007A58 100%)',
-            color: '#000', fontSize: 19, fontWeight: 900,
-            fontFamily: 'var(--font-sans)', letterSpacing: '-0.5px',
-            marginBottom: 24, position: 'relative', overflow: 'hidden',
-            boxShadow: '0 12px 40px rgba(0,200,150,0.35)',
-          }}
-        >
-          {/* Shimmer */}
-          <motion.div animate={{ x: ['-120%', '220%'] }} transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.5, ease: 'linear' }}
-            style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)', transform: 'skewX(-20deg)' }} />
-          <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <span style={{ fontSize: 24 }}>⊞</span>
-            Scan & Pay
-          </span>
-        </motion.button>
-
-        {/* LTV Alert */}
+        {/* LTV health bar */}
         <AnimatePresence>
           {ltv && ltv.status !== 'GREEN' && (
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              style={{
-                background: ltv.status === 'RED' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.08)',
-                border: `1px solid ${ltv.status === 'RED' ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.25)'}`,
-                borderRadius: 16, padding: '14px 16px', marginBottom: 20,
-              }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? '#EF4444' : '#F59E0B', marginBottom: 4 }}>
-                {ltv.status === 'RED' ? '⚠️ Margin Call' : '⚡ Alert'}
-              </p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ltv.message}</p>
-            </motion.div>
+            <ScrollReveal scrollY={scrollY} triggerAt={60}>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                style={{ background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
+                  border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
+                  borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
+                <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
+                  {ltv.status === 'RED' ? '⚠️ Margin Call' : '⚡ Alert'}
+                </p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{ltv.message}</p>
+              </motion.div>
+            </ScrollReveal>
           )}
         </AnimatePresence>
+
+        {/* Pay CTA */}
+        <ScrollReveal scrollY={scrollY} triggerAt={120}>
+          <motion.button
+            whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
+            whileTap={{ scale: 0.96 }}
+            onClick={onPay}
+            style={{
+              width: '100%', height: 62, borderRadius: 16, position: 'relative', overflow: 'hidden',
+              background: 'linear-gradient(135deg, var(--jade) 0%, #00A878 60%, #007A58 100%)',
+              color: 'var(--bg-void)', fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px',
+              boxShadow: '0 12px 40px rgba(0,212,161,0.2)', marginBottom: 28,
+            }}>
+            <motion.div animate={{ x: ['-120%', '220%'] }} transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.5, ease: 'linear' }}
+              style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)', transform: 'skewX(-20deg)' }} />
+            <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+              Scan & Pay
+            </span>
+          </motion.button>
+        </ScrollReveal>
+
+        {/* 30-day explainer */}
+        <ScrollReveal scrollY={scrollY} triggerAt={180}>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+              <div style={{ width: 24, height: 24, borderRadius: 8, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 700 }}>0%</span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>30 days interest-free on every payment</span>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              After that, just {((parseFloat(account?.apr || 15.99)) / 12).toFixed(2)}%/month. Credit cards charge 3%+.
+            </p>
+          </div>
+        </ScrollReveal>
 
         {/* Transactions */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.5px' }}>Recent</h2>
-            <button style={{ fontSize: 12, color: 'var(--jade)', fontWeight: 700 }}>All →</button>
+            <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>Recent</h2>
+            <button style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>View all</button>
           </div>
 
           {transactions.length === 0 ? (
@@ -237,110 +180,55 @@ export default function Dashboard({ onPay }) {
               <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>Scan any UPI QR to pay</p>
             </motion.div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {transactions.map((txn, i) => (
-                <motion.div key={txn.txn_id}
-                  initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
-                  whileHover={{ x: 4, background: 'var(--bg-elevated)' }}
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'var(--bg-surface)', border: '1px solid var(--border)',
-                    borderRadius: 16, padding: '14px 16px', cursor: 'pointer', transition: 'background 0.2s, transform 0.2s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>
-                      🏪
+                <ScrollReveal key={txn.txn_id} scrollY={scrollY} triggerAt={250 + i * 50}>
+                  <motion.div
+                    initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      background: 'var(--bg-surface)', border: '1px solid var(--border)',
+                      borderRadius: 16, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <div style={{ width: 42, height: 42, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                        🏪
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{txn.merchant_name || txn.merchant_vpa}</p>
+                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6, fontWeight: 700 }}>· Free</span>}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p style={{ fontSize: 14, fontWeight: 700, marginBottom: 2 }}>{txn.merchant_name || txn.merchant_vpa}</p>
-                      <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        {new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6, fontWeight: 700 }}>• Free</span>}
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <p style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>−₹{fmt(txn.amount)}</p>
+                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', letterSpacing: '0.5px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                        {txn.status}
                       </p>
                     </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: 16, fontWeight: 800, marginBottom: 2 }}>−{formatCurrency(txn.amount)}</p>
-                    <p style={{ fontSize: 10, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', letterSpacing: '0.5px', fontWeight: 600 }}>
-                      {txn.status}
-                    </p>
-                  </div>
-                </motion.div>
+                  </motion.div>
+                </ScrollReveal>
               ))}
             </div>
           )}
         </div>
 
-
-        {/* 30-Day Interest-Free Tracker */}
-        {transactions.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
-            style={{ marginBottom: 20 }}>
+        {/* Portfolio health peek */}
+        <ScrollReveal scrollY={scrollY} triggerAt={500}>
+          <div style={{ background: 'linear-gradient(135deg, var(--jade-glow), transparent)', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '18px', marginBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h2 style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.5px' }}>Interest-Free Window</h2>
+              <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 6, height: 6, borderRadius: '50%', background: ltvColor }} />
+                <span style={{ fontSize: 10, color: ltvColor, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ltv?.status || 'GREEN'}</span>
+              </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {transactions.filter(t => t.status === 'SETTLED').slice(0, 3).map((txn, i) => {
-                const txnDate    = new Date(txn.initiated_at)
-                const freeUntil  = new Date(txnDate.getTime() + 30 * 24 * 60 * 60 * 1000)
-                const today      = new Date()
-                const daysLeft   = Math.max(0, Math.ceil((freeUntil - today) / (1000 * 60 * 60 * 24)))
-                const daysUsed   = Math.min(30, Math.floor((today - txnDate) / (1000 * 60 * 60 * 24)))
-                const pct        = (daysUsed / 30) * 100
-                const isExpired  = daysLeft === 0
-                const isUrgent   = daysLeft <= 5 && daysLeft > 0
-                const barColor   = isExpired ? '#EF4444' : isUrgent ? '#F59E0B' : 'var(--jade)'
-                return (
-                  <motion.div key={txn.txn_id}
-                    style={{ background: 'var(--bg-surface)', border: `1px solid ${isUrgent ? 'rgba(245,158,11,0.25)' : isExpired ? 'rgba(239,68,68,0.25)' : 'var(--border)'}`, borderRadius: 16, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                      <div>
-                        <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{txn.merchant_name}</p>
-                        <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                          Paid {txnDate.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                        </p>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <p style={{ fontSize: 14, fontWeight: 800, marginBottom: 2 }}>₹{parseFloat(txn.amount).toLocaleString('en-IN')}</p>
-                        <p style={{ fontSize: 11, fontWeight: 700, color: barColor }}>
-                          {isExpired ? 'Interest accruing' : isUrgent ? `${daysLeft}d left — pay soon!` : `${daysLeft} days free`}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Progress bar */}
-                    <div style={{ height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
-                      <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1, ease: 'easeOut', delay: i * 0.1 + 0.5 }}
-                        style={{ height: '100%', borderRadius: 2, background: `linear-gradient(90deg, var(--jade), ${barColor})` }} />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
-                      <p style={{ fontSize: 9, color: 'var(--text-muted)' }}>Day {daysUsed}</p>
-                      <p style={{ fontSize: 9, color: 'var(--text-muted)' }}>Day 30 — interest starts</p>
-                    </div>
-                  </motion.div>
-                )
-              })}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Free period card */}
-        {outstanding === 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }}
-            style={{ background: 'linear-gradient(135deg, rgba(0,200,150,0.07), rgba(201,164,73,0.04))',
-              border: '1px solid rgba(0,200,150,0.15)', borderRadius: 18, padding: '16px 18px', marginBottom: 20 }}>
-            <p style={{ fontSize: 14, color: 'var(--jade)', fontWeight: 800, marginBottom: 6 }}>✨ Smarter than a credit card</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-              {[
-                '30 days interest-free on every payment',
-                '1.33%/month vs credit cards charging 3%+',
-                'Pay only on what you spend, for days used',
-              ].map((t, i) => (
-                <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ color: 'var(--jade)', fontSize: 10, flexShrink: 0 }}>✓</span>
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 400 }}>
+              ₹{fmtL(ltv?.current_pledge_value || 0)}
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Pledged portfolio value</p>
+          </div>
+        </ScrollReveal>
       </div>
     </div>
   )

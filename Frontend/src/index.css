@@ -1,41 +1,50 @@
 /* ─────────────────────────────────────────────
-   LIENPAY DESIGN SYSTEM
-   Liquid Wealth — Dark Luxury Fintech
+   LIENPAY V3 DESIGN SYSTEM
+   Black + Green · Liquid Luxury
    ───────────────────────────────────────────── */
 
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 :root {
-  /* Brand Colors */
-  --jade:         #00C896;
-  --jade-dim:     #00C89620;
-  --jade-glow:    #00C89640;
-  --gold:         #C9A449;
-  --gold-dim:     #C9A44920;
+  --jade: #00D4A1;
+  --jade-bright: #00EDBA;
+  --jade-soft: #00C896;
+  --jade-dim: rgba(0,212,161,0.08);
+  --jade-glow: rgba(0,212,161,0.05);
+  --jade-border: rgba(0,212,161,0.16);
+  --jade-mid: rgba(0,212,161,0.25);
 
-  /* Background System */
-  --bg-base:      #0A0A0F;
-  --bg-surface:   #111118;
-  --bg-elevated:  #1A1A24;
-  --bg-overlay:   #22222F;
+  --gold: #C4A265;
+  --gold-dim: rgba(196,162,101,0.08);
 
-  /* Text */
-  --text-primary:   #F0F0F5;
-  --text-secondary: #8888AA;
-  --text-muted:     #44445A;
+  --red: #E05252;
+  --red-dim: rgba(224,82,82,0.08);
+  --amber: #E0A030;
+  --amber-dim: rgba(224,160,48,0.08);
 
-  /* Borders */
-  --border:       #FFFFFF10;
-  --border-jade:  #00C89630;
+  --bg-void: #050809;
+  --bg-base: #080B0D;
+  --bg-surface: #0C1014;
+  --bg-elevated: #12181D;
+  --bg-hover: #1A2128;
+  --bg-overlay: #1E252C;
 
-  /* Shadows */
-  --shadow-jade:  0 0 40px #00C89625;
-  --shadow-gold:  0 0 40px #C9A44925;
+  --text-primary: #E8F0EC;
+  --text-secondary: #7A8F85;
+  --text-muted: #3A4A44;
+  --text-hint: #222E29;
 
-  /* Typography */
-  --font-serif:  'Instrument Serif', Georgia, serif;
-  --font-sans:   'Outfit', system-ui, sans-serif;
+  --border: rgba(0,212,161,0.06);
+  --border-light: rgba(0,212,161,0.10);
+  --border-jade: rgba(0,212,161,0.16);
 
-  /* Spacing */
-  --safe-top:    env(safe-area-inset-top, 0px);
+  --shadow-jade: 0 0 40px rgba(0,212,161,0.08);
+
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -54,7 +63,7 @@ html, body, #root {
 }
 
 body {
-  background: var(--bg-base);
+  background: var(--bg-void);
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 16px;
@@ -72,107 +81,96 @@ body {
 /* ── SCROLLBAR ─────────────────────────────── */
 ::-webkit-scrollbar { width: 2px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--jade-glow); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--jade-dim); border-radius: 2px; }
 
 /* ── TYPOGRAPHY ────────────────────────────── */
-.font-serif   { font-family: var(--font-serif); }
+.font-display { font-family: var(--font-display); }
 .font-sans    { font-family: var(--font-sans); }
+.font-mono    { font-family: var(--font-mono); }
 
-/* ── GLASS MORPHISM ────────────────────────── */
+/* ── GLASS ─────────────────────────────────── */
 .glass {
-  background: rgba(255,255,255,0.03);
+  background: rgba(255,255,255,0.02);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--border);
 }
 
-.glass-jade {
-  background: rgba(0,200,150,0.05);
-  border: 1px solid var(--border-jade);
+/* ── ANIMATIONS ────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(-16px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.3; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes ringDraw {
+  from { stroke-dashoffset: var(--circ); }
+  to { stroke-dashoffset: var(--offset); }
+}
+@keyframes float1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, -18px) scale(1.08); }
+  66% { transform: translate(-15px, 12px) scale(0.95); }
+}
+@keyframes float2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-20px, -25px) scale(1.1); }
+}
+@keyframes liquidMorph {
+  0%   { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
+  25%  { border-radius: 40% 60% 50% 50% / 50% 40% 60% 50%; }
+  50%  { border-radius: 50% 50% 40% 60% / 60% 50% 50% 40%; }
+  75%  { border-radius: 60% 50% 50% 40% / 40% 50% 60% 50%; }
+  100% { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
+}
+@keyframes pulseRing {
+  0%   { transform: scale(1); opacity: 0.4; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 
-/* ── GRADIENTS ─────────────────────────────── */
-.grad-jade {
-  background: linear-gradient(135deg, var(--jade), #00A878);
-}
-
-.grad-gold {
-  background: linear-gradient(135deg, var(--gold), #A07830);
-}
-
-.grad-text-jade {
-  background: linear-gradient(135deg, var(--jade), #80FFD4);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.grad-text-gold {
-  background: linear-gradient(135deg, var(--gold), #FFE0A0);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* ── GLOW EFFECTS ──────────────────────────── */
-.glow-jade { box-shadow: var(--shadow-jade); }
-.glow-gold { box-shadow: var(--shadow-gold); }
-.text-glow-jade { text-shadow: 0 0 20px #00C89660; }
-
-/* ── NOISE TEXTURE ─────────────────────────── */
-.noise::after {
-  content: '';
+/* ── SCREEN ────────────────────────────────── */
+.screen {
   position: absolute;
   inset: 0;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-  pointer-events: none;
-  border-radius: inherit;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--safe-bottom) + 80px);
 }
 
-/* ── ANIMATIONS ────────────────────────────── */
-@keyframes pulse-jade {
-  0%, 100% { opacity: 1; }
-  50%       { opacity: 0.5; }
+/* ── BOTTOM NAV ────────────────────────────── */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding-bottom: var(--safe-bottom);
 }
 
-@keyframes float {
-  0%, 100% { transform: translateY(0px); }
-  50%       { transform: translateY(-8px); }
-}
-
-@keyframes spin-slow {
-  from { transform: rotate(0deg); }
-  to   { transform: rotate(360deg); }
-}
-
-@keyframes shimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position: 200% center; }
-}
-
-.animate-pulse-jade  { animation: pulse-jade 2s ease-in-out infinite; }
-.animate-float       { animation: float 4s ease-in-out infinite; }
-.animate-spin-slow   { animation: spin-slow 8s linear infinite; }
-
-/* ── SHIMMER LOADING ───────────────────────── */
-.shimmer {
-  background: linear-gradient(
-    90deg,
-    var(--bg-elevated) 0%,
-    var(--bg-overlay) 50%,
-    var(--bg-elevated) 100%
-  );
-  background-size: 200% 100%;
-  animation: shimmer 1.5s ease-in-out infinite;
-}
-
-/* ── UTILITY ───────────────────────────────── */
-.truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* ── BUTTONS ───────────────────────────────── */
 button {
   cursor: pointer;
   border: none;
@@ -191,29 +189,16 @@ input {
 
 input::placeholder { color: var(--text-muted); }
 
-/* ── SCREEN CONTAINER ──────────────────────── */
-.screen {
-  position: absolute;
-  inset: 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior: contain;
-  padding-top: var(--safe-top);
-  padding-bottom: calc(var(--safe-bottom) + 80px);
+/* ── SHIMMER LOADING ───────────────────────── */
+.shimmer {
+  background: linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-overlay) 50%, var(--bg-elevated) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 
-.screen-no-nav {
-  position: absolute;
-  inset: 0;
+/* ── UTILITY ───────────────────────────────── */
+.truncate {
   overflow: hidden;
-}
-
-/* ── BOTTOM NAV ────────────────────────────── */
-.bottom-nav {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  padding-bottom: var(--safe-bottom);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
