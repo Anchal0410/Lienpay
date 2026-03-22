@@ -82,5 +82,6 @@ export const decodeQR        = (qr)     => post('/api/txn/decode-qr',   { qr_str
 export const getStatements = ()       => get('/api/billing/statements')
 export const getStatement  = (id)     => get(`/api/billing/statements/${id}`)
 export const mockRepay     = (amount) => post('/api/billing/repay/mock', { amount })
+export const initiateRepay = (amount) => post('/api/billing/repay/initiate', { amount })
 
 export default { get, post }

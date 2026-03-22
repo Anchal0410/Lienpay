@@ -202,6 +202,50 @@ export default function Pay({ onBack, onSuccess }) {
                 )}
               </div>
 
+              {/* Upload QR Screenshot */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                <input type="file" accept="image/*" id="qr-upload" style={{ display: 'none' }}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (!file) return
+                    const img = new Image()
+                    img.onload = () => {
+                      const canvas = canvasRef.current
+                      if (!canvas) return
+                      canvas.width = img.width
+                      canvas.height = img.height
+                      const ctx = canvas.getContext('2d')
+                      ctx.drawImage(img, 0, 0)
+                      const imageData = ctx.getImageData(0, 0, img.width, img.height)
+                      if (window.jsQR) {
+                        try {
+                          const code = window.jsQR(imageData.data, imageData.width, imageData.height)
+                          if (code?.data) {
+                            const parsed = parseUPIQR(code.data)
+                            if (parsed) {
+                              setTxnData(parsed)
+                              setStep('confirm')
+                              toast.success('QR detected from image! ✓')
+                              return
+                            }
+                          }
+                        } catch (_) {}
+                      }
+                      toast.error('Could not read QR from this image. Try a clearer screenshot.')
+                    }
+                    img.src = URL.createObjectURL(file)
+                    e.target.value = ''
+                  }}
+                />
+                <motion.button whileTap={{ scale: 0.96 }}
+                  onClick={() => document.getElementById('qr-upload')?.click()}
+                  style={{ flex: 1, height: 48, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--jade-border)',
+                    color: 'var(--jade)', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  🖼️ Upload QR Screenshot
+                </motion.button>
+              </div>
+
               {/* Manual UPI */}
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px', marginBottom: 16 }}>
                 <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 12 }}>MANUAL ENTRY</p>

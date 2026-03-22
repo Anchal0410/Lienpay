@@ -23,18 +23,27 @@ export default function Dashboard({ onPay }) {
   const [loading, setLoading] = useState(!creditAccount)
   const scrollRef = useRef(null)
   const scrollY = useScrollY(scrollRef)
+  const [showAllTxns, setShowAllTxns] = useState(false)
+
+  const handleViewAll = async () => {
+    if (showAllTxns) { setShowAllTxns(false); return }
+    try {
+      const r = await getTxnHistory({ limit: 100 })
+      setTransactions(r.data?.transactions || [])
+    } catch(e) {}
+    setShowAllTxns(true)
+  }
 
   useEffect(() => {
     const load = async () => {
+      // Each call is independent — one failure shouldn't block others
+      try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
+      try { const r = await getLTVHealth(); setLTVHealth(r.data) } catch(e) {}
       try {
-        const [creditRes, ltvRes, txnRes] = await Promise.all([
-          getCreditStatus(), getLTVHealth(), getTxnHistory({ limit: 5 }),
-        ])
-        setCreditAccount(creditRes.data)
-        setLTVHealth(ltvRes.data)
-        setTransactions(txnRes.data?.transactions || [])
-      } catch (err) { /* silent */ }
-      finally { setLoading(false) }
+        const r = await getTxnHistory({ limit: 10 })
+        setTransactions(r.data?.transactions || [])
+      } catch(e) {}
+      setLoading(false)
     }
     load()
   }, [])
@@ -177,8 +186,8 @@ export default function Dashboard({ onPay }) {
         {/* Transactions */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>Recent</h2>
-            <button style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>View all</button>
+            <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>{showAllTxns ? 'All Transactions' : 'Recent'}</h2>
+            <button onClick={handleViewAll} style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{showAllTxns ? 'Show less' : 'View all'}</button>
           </div>
 
           {transactions.length === 0 ? (
@@ -190,7 +199,7 @@ export default function Dashboard({ onPay }) {
             </motion.div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {transactions.map((txn, i) => (
+              {(showAllTxns ? transactions : transactions.slice(0, 5)).map((txn, i) => (
                 <ScrollReveal key={txn.txn_id} scrollY={scrollY} triggerAt={250 + i * 50}>
                   <motion.div
                     initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}

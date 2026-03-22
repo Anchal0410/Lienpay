@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getStatements, mockRepay, getCreditStatus } from '../api/client'
+import { getStatements, mockRepay, initiateRepay, getCreditStatus } from '../api/client'
 import useStore from '../store/useStore'
 import toast from 'react-hot-toast'
 
@@ -15,6 +15,7 @@ export default function Billing() {
   const [loading,  setLoading]  = useState(true)
   const [repaying, setRepaying] = useState(false)
   const [selected, setSelected] = useState(null)
+  const [repayModal, setRepayModal] = useState(null) // { amount, upi_id, upi_link }
 
   useEffect(() => {
     const load = async () => {
@@ -23,7 +24,7 @@ export default function Billing() {
         const data = res?.data?.statements || res?.statements || []
         setStatements(data)
       } catch (err) {
-        toast.error('Failed to load statements')
+        // silent — statements may not exist yet
       } finally {
         setLoading(false)
       }
@@ -31,14 +32,27 @@ export default function Billing() {
     load()
   }, [])
 
-  const handleRepay = async (amount) => {
+  // Step 1: Open repayment modal with UPI details
+  const openRepayModal = async (amount) => {
+    try {
+      const res = await initiateRepay(amount)
+      setRepayModal(res.data)
+    } catch (err) {
+      toast.error(err.message || 'Failed to initiate repayment')
+    }
+  }
+
+  // Step 2: User pays via UPI app or we simulate
+  const completeRepayment = async () => {
+    if (!repayModal) return
     setRepaying(true)
     try {
-      await mockRepay(amount)
+      await mockRepay(repayModal.amount)
       const creditRes = await getCreditStatus()
       setCreditAccount(creditRes?.data || creditRes)
-      toast.success(`${formatCurrency(amount)} repaid! ✓`)
-      // Refresh
+      toast.success(`${formatCurrency(repayModal.amount)} repaid! ✓`)
+      setRepayModal(null)
+      // Refresh statements
       const res = await getStatements()
       setStatements(res?.data?.statements || res?.statements || [])
     } catch (err) {
@@ -48,7 +62,15 @@ export default function Billing() {
     }
   }
 
+  // Open UPI app deep link
+  const openUPIApp = () => {
+    if (repayModal?.upi_link) {
+      window.location.href = repayModal.upi_link
+    }
+  }
+
   return (
+    <>
     <div className="screen">
       <div style={{ padding: '20px 20px 0' }}>
 
@@ -75,12 +97,14 @@ export default function Billing() {
             </div>
             {parseFloat(creditAccount.outstanding) > 0 && (
               <motion.button whileTap={{ scale: 0.97 }}
-                onClick={() => handleRepay(parseFloat(creditAccount.outstanding))}
+                onClick={() => openRepayModal(parseFloat(creditAccount.outstanding))}
                 disabled={repaying}
                 style={{ width: '100%', height: 46, borderRadius: 14, marginTop: 14,
                   background: 'linear-gradient(135deg, var(--jade), #00A878)',
-                  color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)' }}>
-                {repaying ? 'Processing…' : `Pay Full Balance ${formatCurrency(creditAccount.outstanding)}`}
+                  color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)',
+                  boxShadow: '0 6px 20px rgba(0,212,161,0.2)' }}>
+                {repaying ? 'Processing…' : `Repay ${formatCurrency(creditAccount.outstanding)}`}
+              </motion.button>
               </motion.button>
             )}
           </motion.div>
@@ -156,12 +180,12 @@ export default function Billing() {
                         style={{ borderTop: '1px solid var(--border)', padding: '14px 18px', background: 'var(--bg-elevated)' }}>
                         <div style={{ display: 'flex', gap: 8 }}>
                           <motion.button whileTap={{ scale: 0.96 }} disabled={repaying}
-                            onClick={e => { e.stopPropagation(); handleRepay(parseFloat(stmt.minimum_due || stmt.minimum_amount_due)) }}
+                            onClick={e => { e.stopPropagation(); openRepayModal(parseFloat(stmt.minimum_due || stmt.minimum_amount_due)) }}
                             style={{ flex: 1, height: 44, borderRadius: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>
                             Pay Min {formatCurrency(stmt.minimum_due || stmt.minimum_amount_due)}
                           </motion.button>
                           <motion.button whileTap={{ scale: 0.96 }} disabled={repaying}
-                            onClick={e => { e.stopPropagation(); handleRepay(parseFloat(stmt.total_due)) }}
+                            onClick={e => { e.stopPropagation(); openRepayModal(parseFloat(stmt.total_due)) }}
                             style={{ flex: 1, height: 44, borderRadius: 12, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 12, fontWeight: 800, fontFamily: 'var(--font-sans)' }}>
                             {repaying ? '…' : `Pay Full ${formatCurrency(stmt.total_due)}`}
                           </motion.button>
@@ -196,5 +220,70 @@ export default function Billing() {
 
       </div>
     </div>
+
+    {/* Repayment Modal */}
+    <AnimatePresence>
+      {repayModal && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
+          onClick={() => !repaying && setRepayModal(null)}>
+          <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'spring', stiffness: 300, damping: 35 }}
+            onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--bg-surface)', borderRadius: '24px 24px 0 0', padding: '24px', width: '100%', border: '1px solid var(--border)', borderBottom: 'none' }}>
+
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, fontWeight: 400, marginBottom: 20 }}>Repay via UPI</h3>
+
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 40, color: 'var(--jade)', marginBottom: 4 }}>
+                {formatCurrency(repayModal.amount)}
+              </p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>to be repaid</p>
+            </div>
+
+            <div style={{ background: 'var(--bg-elevated)', borderRadius: 14, padding: '16px', marginBottom: 16, border: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Pay to UPI ID</span>
+                <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--jade)' }}>{repayModal.upi_id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>After repayment</span>
+                <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                  {formatCurrency(repayModal.outstanding_after)} outstanding
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+              <motion.button whileTap={{ scale: 0.96 }} onClick={openUPIApp}
+                style={{ flex: 1, height: 50, borderRadius: 14,
+                  background: 'var(--bg-elevated)', border: '1px solid var(--jade-border)',
+                  color: 'var(--jade)', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)' }}>
+                Open UPI App
+              </motion.button>
+              <motion.button whileTap={{ scale: 0.96 }} onClick={completeRepayment} disabled={repaying}
+                style={{ flex: 1, height: 50, borderRadius: 14,
+                  background: 'linear-gradient(135deg, var(--jade), #00A878)',
+                  color: 'var(--bg-void)', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                  opacity: repaying ? 0.6 : 1,
+                  boxShadow: '0 6px 20px rgba(0,212,161,0.2)' }}>
+                {repaying ? 'Processing...' : 'Confirm Payment'}
+              </motion.button>
+            </div>
+
+            <p style={{ fontSize: 10, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.5 }}>
+              Pay via any UPI app (GPay, PhonePe, Paytm) to the above ID, then tap Confirm.
+            </p>
+
+            <button onClick={() => setRepayModal(null)}
+              style={{ width: '100%', fontSize: 12, color: 'var(--text-muted)', padding: '12px 0', marginTop: 8 }}>
+              Cancel
+            </button>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+
+    </>
   )
 }

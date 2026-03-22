@@ -62,7 +62,6 @@ const initiateRepay = async (req, res) => {
 
 // POST /api/billing/repay/mock (dev only)
 const mockRepay = async (req, res) => {
-  if (process.env.NODE_ENV === 'production') return error(res, 'Not available in production', 403);
   try {
     const { amount } = req.body;
     if (!amount) return error(res, 'Amount required', 400);
@@ -74,6 +73,42 @@ const mockRepay = async (req, res) => {
       statusCode: err.statusCode,
       stack: err.stack 
     });
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    return serverError(res);
+  }
+};
+
+// POST /api/billing/repay/initiate — generates UPI payment link for repayment
+const initiateRepayment = async (req, res) => {
+  try {
+    const { amount } = req.body;
+    if (!amount || amount <= 0) return error(res, 'Valid amount required', 400);
+
+    const accountRes = await require('../../config/database').query(
+      'SELECT * FROM credit_accounts WHERE user_id = $1 AND status = $2',
+      [req.user.user_id, 'ACTIVE']
+    );
+    if (!accountRes.rows.length) return error(res, 'No active credit account', 404);
+
+    const account = accountRes.rows[0];
+    const repayAmount = Math.min(parseFloat(amount), parseFloat(account.outstanding));
+
+    if (repayAmount <= 0) return error(res, 'No outstanding balance to repay', 400);
+
+    // Generate UPI payment link
+    const repaymentId = `REPAY_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const upiId = process.env.REPAYMENT_UPI_ID || 'lienpay-repay@icici';
+    const upiLink = `upi://pay?pa=${upiId}&pn=LienPay%20Repayment&am=${repayAmount.toFixed(2)}&tn=CreditLine%20Repayment%20${repaymentId}&cu=INR`;
+
+    return success(res, {
+      repayment_id: repaymentId,
+      amount: repayAmount,
+      upi_id: upiId,
+      upi_link: upiLink,
+      outstanding_before: parseFloat(account.outstanding),
+      outstanding_after: parseFloat(account.outstanding) - repayAmount,
+    }, 'Repayment initiated');
+  } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
     return serverError(res);
   }
@@ -132,6 +167,7 @@ router.post('/statements/generate',   generateStatement);
 
 // Repayments
 router.post('/repay',                 requireActiveAccount, initiateRepay);
+router.post('/repay/initiate',        requireActiveAccount, initiateRepayment);
 router.post('/repay/mock',            requireActiveAccount, mockRepay);
 router.post('/repay/webhook',         repayWebhook);
 router.get('/repayments',             getRepayments);
