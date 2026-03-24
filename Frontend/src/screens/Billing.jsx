@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getStatements, mockRepay, initiateRepay, getCreditStatus } from '../api/client'
+import { getStatements, mockRepay, initiateRepay, getCreditStatus, getRepayments, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 import toast from 'react-hot-toast'
 
@@ -15,19 +15,33 @@ export default function Billing() {
   const [loading,  setLoading]  = useState(true)
   const [repaying, setRepaying] = useState(false)
   const [selected, setSelected] = useState(null)
-  const [repayModal, setRepayModal] = useState(null) // { amount, upi_id, upi_link }
+  const [repayModal, setRepayModal] = useState(null)
+  const [customAmount, setCustomAmount] = useState('')
+  const [repayments, setRepayments] = useState([])
+  const [freePeriodAlerts, setFreePeriodAlerts] = useState([])
 
   useEffect(() => {
     const load = async () => {
+      try { const res = await getStatements(); setStatements(res?.data?.statements || res?.statements || []) } catch(e) {}
+      try { const res = await getRepayments(); setRepayments(res?.data?.repayments || []) } catch(e) {}
       try {
-        const res = await getStatements()
-        const data = res?.data?.statements || res?.statements || []
-        setStatements(data)
-      } catch (err) {
-        // silent — statements may not exist yet
-      } finally {
-        setLoading(false)
-      }
+        const res = await getTxnHistory({ limit: 50 })
+        const txns = res?.data?.transactions || []
+        // Find transactions with free period ending in next 7 days
+        const alerts = txns.filter(t => {
+          if (!t.is_in_free_period) return false
+          const initiated = new Date(t.initiated_at)
+          const freeEnds = new Date(initiated.getTime() + 30 * 24 * 60 * 60 * 1000)
+          const daysLeft = Math.ceil((freeEnds - Date.now()) / (1000 * 60 * 60 * 24))
+          return daysLeft > 0 && daysLeft <= 7
+        }).map(t => {
+          const initiated = new Date(t.initiated_at)
+          const freeEnds = new Date(initiated.getTime() + 30 * 24 * 60 * 60 * 1000)
+          return { ...t, daysLeft: Math.ceil((freeEnds - Date.now()) / (1000 * 60 * 60 * 24)), freeEnds }
+        })
+        setFreePeriodAlerts(alerts)
+      } catch(e) {}
+      setLoading(false)
     }
     load()
   }, [])
@@ -52,9 +66,10 @@ export default function Billing() {
       setCreditAccount(creditRes?.data || creditRes)
       toast.success(`${formatCurrency(repayModal.amount)} repaid! ✓`)
       setRepayModal(null)
-      // Refresh statements
-      const res = await getStatements()
-      setStatements(res?.data?.statements || res?.statements || [])
+      setCustomAmount('')
+      // Refresh
+      try { const res = await getStatements(); setStatements(res?.data?.statements || res?.statements || []) } catch(e) {}
+      try { const res = await getRepayments(); setRepayments(res?.data?.repayments || []) } catch(e) {}
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -96,16 +111,69 @@ export default function Billing() {
               ))}
             </div>
             {parseFloat(creditAccount.outstanding) > 0 && (
-              <motion.button whileTap={{ scale: 0.97 }}
-                onClick={() => openRepayModal(parseFloat(creditAccount.outstanding))}
-                disabled={repaying}
-                style={{ width: '100%', height: 46, borderRadius: 14, marginTop: 14,
-                  background: 'linear-gradient(135deg, var(--jade), #00A878)',
-                  color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)',
-                  boxShadow: '0 6px 20px rgba(0,212,161,0.2)' }}>
-                {repaying ? 'Processing…' : `Repay ${formatCurrency(creditAccount.outstanding)}`}
-              </motion.button>
+              <>
+                <motion.button whileTap={{ scale: 0.97 }}
+                  onClick={() => openRepayModal(parseFloat(creditAccount.outstanding))}
+                  disabled={repaying}
+                  style={{ width: '100%', height: 46, borderRadius: 14, marginTop: 14,
+                    background: 'linear-gradient(135deg, var(--jade), #00A878)',
+                    color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)',
+                    boxShadow: '0 6px 20px rgba(0,212,161,0.2)' }}>
+                  {repaying ? 'Processing…' : `Repay Full ${formatCurrency(creditAccount.outstanding)}`}
+                </motion.button>
+
+                {/* Custom amount */}
+                <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-elevated)', borderRadius: 10, border: '1px solid var(--border)', padding: '0 12px' }}>
+                    <span style={{ color: 'var(--text-muted)', fontSize: 14, fontWeight: 600 }}>₹</span>
+                    <input type="number" placeholder="Custom amount" value={customAmount} onChange={e => setCustomAmount(e.target.value)}
+                      style={{ flex: 1, height: 40, fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'var(--font-sans)' }} />
+                  </div>
+                  <motion.button whileTap={{ scale: 0.96 }}
+                    onClick={() => {
+                      const amt = parseFloat(customAmount)
+                      if (!amt || amt <= 0) return toast.error('Enter a valid amount')
+                      if (amt > parseFloat(creditAccount.outstanding)) return toast.error('Amount exceeds outstanding balance')
+                      openRepayModal(amt)
+                    }}
+                    disabled={repaying || !customAmount}
+                    style={{ padding: '0 20px', borderRadius: 10, background: 'var(--bg-elevated)', border: '1px solid var(--jade-border)',
+                      color: 'var(--jade)', fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)', opacity: customAmount ? 1 : 0.5 }}>
+                    Pay
+                  </motion.button>
+                </div>
+              </>
             )}
+          </motion.div>
+        )}
+
+        {/* Free period ending alerts */}
+        {freePeriodAlerts.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            style={{ background: 'rgba(224,160,48,0.06)', border: '1px solid rgba(224,160,48,0.2)', borderRadius: 16, padding: '14px 16px', marginBottom: 16 }}>
+            <p style={{ fontSize: 12, fontWeight: 700, color: '#E0A030', marginBottom: 10 }}>
+              Interest-free period ending soon
+            </p>
+            {freePeriodAlerts.map((t, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0',
+                borderBottom: i < freePeriodAlerts.length - 1 ? '1px solid rgba(224,160,48,0.1)' : 'none' }}>
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 600 }}>{t.merchant_name}</p>
+                  <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{formatCurrency(t.amount)}</p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, color: t.daysLeft <= 3 ? '#E05252' : '#E0A030', fontFamily: 'var(--font-mono)' }}>
+                    {t.daysLeft}d left
+                  </p>
+                  <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Expires {formatDate(t.freeEnds)}
+                  </p>
+                </div>
+              </div>
+            ))}
+            <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
+              Repay before the free period ends to avoid interest charges.
+            </p>
           </motion.div>
         )}
 
@@ -197,6 +265,91 @@ export default function Billing() {
             ))}
           </div>
         )}
+
+        {/* Repayment History */}
+        {repayments.length > 0 && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+            style={{ marginTop: 20 }}>
+            <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10 }}>REPAYMENT HISTORY</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {repayments.slice(0, 10).map((r, i) => (
+                <motion.div key={r.repayment_id || i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(0,212,161,0.08)', border: '1px solid rgba(0,212,161,0.15)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>
+                      ✓
+                    </div>
+                    <div>
+                      <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--jade)' }}>Repayment</p>
+                      <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {r.created_at ? formatDate(r.created_at) : '—'}
+                        {r.payment_mode && <span> · {r.payment_mode}</span>}
+                      </p>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>
+                      +{formatCurrency(r.amount)}
+                    </p>
+                    <p style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: r.status === 'SUCCESS' ? 'var(--jade)' : 'var(--text-muted)', fontWeight: 600 }}>
+                      {r.status || 'SUCCESS'}
+                    </p>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Auto-pay / Recurring Payments */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '18px', marginTop: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <p style={{ fontSize: 13, fontWeight: 700 }}>🔄 Auto-pay (recurring)</p>
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--jade)', fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'rgba(0,212,161,0.08)', border: '1px solid rgba(0,212,161,0.15)' }}>NACH</span>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 14 }}>
+            Set up automatic payments for subscriptions like Netflix, Spotify, or gym memberships. 
+            Payments execute on their due date using your credit line — no UPI PIN needed.
+          </p>
+
+          {/* Subscription list placeholder */}
+          <div style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 14, padding: '16px', marginBottom: 12 }}>
+            {[
+              { name: 'Netflix', amount: 649, icon: '🎬', day: 15, active: false },
+              { name: 'Spotify', amount: 119, icon: '🎵', day: 1, active: false },
+              { name: 'Gym membership', amount: 1500, icon: '💪', day: 5, active: false },
+            ].map((sub, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 0', borderBottom: i < 2 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 18 }}>{sub.icon}</span>
+                  <div>
+                    <p style={{ fontSize: 13, fontWeight: 600 }}>{sub.name}</p>
+                    <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      {formatCurrency(sub.amount)}/month · Due {sub.day}th
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => toast.success(`Auto-pay for ${sub.name} coming soon! NACH mandate setup requires bank partnership.`)}
+                  style={{ padding: '6px 14px', borderRadius: 8, fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-sans)',
+                    background: sub.active ? 'rgba(0,212,161,0.1)' : 'var(--bg-surface)',
+                    border: `1px solid ${sub.active ? 'rgba(0,212,161,0.3)' : 'var(--border)'}`,
+                    color: sub.active ? 'var(--jade)' : 'var(--text-secondary)' }}>
+                  {sub.active ? 'Active' : 'Set up'}
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+            Auto-pay uses NACH (National Automated Clearing House) mandates. You authorize a max amount per month, 
+            and payments auto-debit from your credit line. Cancel anytime.
+          </p>
+        </motion.div>
 
         {/* How interest works */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }}

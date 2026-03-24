@@ -1,20 +1,22 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { initiatePayment, mockSettle, getCreditStatus } from '../api/client'
+import { initiatePayment, mockSettle, getCreditStatus, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 
 const formatCurrency = (n) =>
   `₹${parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 
-const DEMO_MERCHANTS = [
-  { merchant_vpa: 'zomato@icici',   merchant_name: 'Zomato',     amount: 299,  emoji: '🍕' },
-  { merchant_vpa: 'swiggy@hdfc',    merchant_name: 'Swiggy',     amount: 180,  emoji: '🛵' },
-  { merchant_vpa: 'uber@yesbank',   merchant_name: 'Uber',       amount: 250,  emoji: '🚗' },
-  { merchant_vpa: 'amazon@apl',     merchant_name: 'Amazon',     amount: 1299, emoji: '📦' },
-  { merchant_vpa: 'netflix@icici',  merchant_name: 'Netflix',    amount: 649,  emoji: '🎬' },
-  { merchant_vpa: 'petrol@icici',   merchant_name: 'HP Petrol',  amount: 2000, emoji: '⛽' },
-]
+// Categorize transactions by merchant name
+const categorize = (name) => {
+  const n = (name || '').toLowerCase()
+  if (n.includes('zomato') || n.includes('swiggy') || n.includes('food')) return { cat: 'Food & Dining', icon: '🍕', color: '#EF8B2C' }
+  if (n.includes('uber') || n.includes('ola') || n.includes('rapido') || n.includes('petrol') || n.includes('fuel')) return { cat: 'Transport', icon: '🚗', color: '#4DA8FF' }
+  if (n.includes('amazon') || n.includes('flipkart') || n.includes('myntra') || n.includes('shop')) return { cat: 'Shopping', icon: '🛍️', color: '#8B7BD4' }
+  if (n.includes('netflix') || n.includes('spotify') || n.includes('hotstar') || n.includes('prime')) return { cat: 'Subscriptions', icon: '🎬', color: '#E05252' }
+  if (n.includes('pharma') || n.includes('medic') || n.includes('apollo') || n.includes('health')) return { cat: 'Health', icon: '💊', color: '#00D4A1' }
+  return { cat: 'Other', icon: '💳', color: '#7A8F85' }
+}
 
 export default function Pay({ onBack, onSuccess }) {
   const { creditAccount, setCreditAccount } = useStore()
@@ -33,6 +35,46 @@ export default function Pay({ onBack, onSuccess }) {
   const streamRef = useRef(null)
   const rafRef    = useRef(null)
   const available = parseFloat(creditAccount?.available_credit || 0)
+  const [spendingData, setSpendingData] = useState(null)
+
+  // Fetch spending analytics
+  useEffect(() => {
+    const loadSpending = async () => {
+      try {
+        const r = await getTxnHistory({ limit: 50 })
+        const txns = r.data?.transactions || []
+        if (!txns.length) { setSpendingData(null); return }
+
+        // Build category breakdown
+        const cats = {}
+        let total = 0
+        const freePeriodEnding = []
+
+        txns.forEach(t => {
+          const amt = parseFloat(t.amount || 0)
+          total += amt
+          const c = categorize(t.merchant_name)
+          if (!cats[c.cat]) cats[c.cat] = { ...c, total: 0, count: 0 }
+          cats[c.cat].total += amt
+          cats[c.cat].count++
+
+          // Check if free period ending in next 5 days
+          if (t.is_in_free_period) {
+            const initiated = new Date(t.initiated_at)
+            const freeEnds = new Date(initiated.getTime() + 30 * 24 * 60 * 60 * 1000)
+            const daysLeft = Math.ceil((freeEnds - Date.now()) / (1000 * 60 * 60 * 24))
+            if (daysLeft > 0 && daysLeft <= 5) {
+              freePeriodEnding.push({ ...t, daysLeft, freeEnds })
+            }
+          }
+        })
+
+        const sorted = Object.values(cats).sort((a, b) => b.total - a.total)
+        setSpendingData({ categories: sorted, total, count: txns.length, freePeriodEnding })
+      } catch(e) {}
+    }
+    loadSpending()
+  }, [])
 
   // ── CAMERA ─────────────────────────────────────────────────
   const stopCamera = useCallback(() => {
@@ -271,21 +313,58 @@ export default function Pay({ onBack, onSuccess }) {
                 </div>
               </div>
 
-              {/* Demo merchants */}
-              <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10 }}>QUICK PAY — DEMO</p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {DEMO_MERCHANTS.map((m, i) => (
-                  <motion.button key={i} whileHover={{ y: -2 }} whileTap={{ scale: 0.94 }}
-                    onClick={() => { setTxnData({ merchant_vpa: m.merchant_vpa, merchant_name: m.merchant_name, amount: m.amount }); setStep('confirm') }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px', textAlign: 'left' }}>
-                    <span style={{ fontSize: 24, flexShrink: 0 }}>{m.emoji}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.merchant_name}</p>
-                      <p style={{ fontSize: 13, color: 'var(--jade)', fontWeight: 800 }}>{formatCurrency(m.amount)}</p>
+              {/* Spending insights */}
+              {spendingData && spendingData.categories.length > 0 ? (
+                <div>
+                  {/* Free period alerts */}
+                  {spendingData.freePeriodEnding.length > 0 && (
+                    <div style={{ background: 'rgba(224,160,48,0.08)', border: '1px solid rgba(224,160,48,0.2)', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: '#E0A030', marginBottom: 6 }}>Free period ending soon</p>
+                      {spendingData.freePeriodEnding.map((t, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 2 }}>
+                          <span>{t.merchant_name} — {formatCurrency(t.amount)}</span>
+                          <span style={{ color: '#E0A030', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{t.daysLeft}d left</span>
+                        </div>
+                      ))}
                     </div>
-                  </motion.button>
-                ))}
-              </div>
+                  )}
+
+                  <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10 }}>YOUR SPENDING</p>
+                  <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px', marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                      <div>
+                        <p style={{ fontSize: 20, fontWeight: 800, fontFamily: 'var(--font-display)' }}>{formatCurrency(spendingData.total)}</p>
+                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{spendingData.count} transactions</p>
+                      </div>
+                    </div>
+                    {/* Category bars */}
+                    {spendingData.categories.slice(0, 5).map((c, i) => {
+                      const pct = (c.total / spendingData.total * 100)
+                      return (
+                        <div key={i} style={{ marginBottom: 10 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 14 }}>{c.icon}</span>
+                              <span style={{ fontSize: 12, fontWeight: 600 }}>{c.cat}</span>
+                              <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{c.count}x</span>
+                            </div>
+                            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: c.color }}>{formatCurrency(c.total)}</span>
+                          </div>
+                          <div style={{ height: 4, background: 'var(--bg-elevated)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: c.color, borderRadius: 2, transition: 'width 0.6s ease' }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '24px 16px', textAlign: 'center' }}>
+                  <p style={{ fontSize: 28, marginBottom: 8 }}>📊</p>
+                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>No spending yet</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Your spending analytics will appear here after your first payment</p>
+                </div>
+              )}
             </motion.div>
           )}
 

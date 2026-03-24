@@ -84,5 +84,6 @@ export const getStatements = ()       => get('/api/billing/statements')
 export const getStatement  = (id)     => get(`/api/billing/statements/${id}`)
 export const mockRepay     = (amount) => post('/api/billing/repay/mock', { amount })
 export const initiateRepay = (amount) => post('/api/billing/repay/initiate', { amount })
+export const getRepayments = ()      => get('/api/billing/repayments')
 
 export default { get, post }

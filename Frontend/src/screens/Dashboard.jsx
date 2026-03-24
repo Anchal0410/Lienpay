@@ -34,7 +34,7 @@ export default function Dashboard({ onPay }) {
 
   useEffect(() => {
     const load = async () => {
-      // Each call is independent — one failure shouldn't block others
+      // Each call independent — one failure doesn't block others
       try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
       try { const r = await getLTVHealth(); setLTVHealth(r.data) } catch(e) {}
       try {
@@ -44,7 +44,7 @@ export default function Dashboard({ onPay }) {
       setLoading(false)
     }
     load()
-  }, [])
+  }, [activeTab]) // re-fetch when user switches back to Home tab
 
   const account = creditAccount
   const available = parseFloat(account?.available_credit || 0)
