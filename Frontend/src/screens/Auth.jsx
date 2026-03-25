@@ -54,10 +54,13 @@ export default function Auth() {
     setLoading(true)
     try {
       const res = await verifyOTP(mobile, otpCode)
-      setAuth(res.data.token, { mobile, user_id: res.data.user_id })
-      const onbStep = res.data.onboarding_step || 'KYC'
+      const userData = res.data.user || res.data  // handle both nested and flat
+      setAuth(res.data.token, { mobile, user_id: userData.user_id })
+      // If user already completed onboarding, skip to COMPLETE
+      const rawStep = userData.onboarding_step
+      const onbStep = (rawStep === 'COMPLETE' || userData.account_status === 'CREDIT_ACTIVE') ? 'COMPLETE' : (rawStep || 'KYC')
       setOnboardingStep(onbStep)
-      toast.success('Welcome to LienPay!')
+      toast.success(onbStep === 'COMPLETE' ? 'Welcome back!' : 'Welcome to LienPay!')
     } catch (err) {
       toast.error(err.message)
       setOtp(['', '', '', '', '', ''])

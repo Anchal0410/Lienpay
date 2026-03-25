@@ -5,12 +5,29 @@
 // - 30-day interest-free period from first drawdown of each cycle
 // - After free period: daily reducing balance simple interest
 // - Formula: Outstanding × (APR/365) × days used
+// - BASE APR: 12% for all customers
+// - PENALTY APR: 18% if payment is overdue (past due date)
 // - Interest calculated daily, billed monthly
 // - No compounding — simple interest only
 // ─────────────────────────────────────────────────────────────
 
 const { query } = require('../../config/database');
 const { logger } = require('../../config/logger');
+
+const BASE_APR = parseFloat(process.env.BASE_APR) || 12.00;
+const PENALTY_APR = parseFloat(process.env.PENALTY_APR) || 18.00;
+
+// ── GET EFFECTIVE APR (checks overdue status) ─────────────────
+const getEffectiveAPR = async (accountId) => {
+  const res = await query('SELECT status, apr FROM credit_accounts WHERE account_id = $1', [accountId]);
+  if (!res.rows.length) return BASE_APR;
+  const account = res.rows[0];
+  // If account is frozen/overdue, apply penalty rate
+  if (account.status === 'FROZEN' || account.status === 'OVERDUE') {
+    return PENALTY_APR;
+  }
+  return BASE_APR;
+};
 
 // ── CALCULATE INTEREST FOR A TRANSACTION ─────────────────────
 const calculateTransactionInterest = (amount, apr, daysUsed, isInFreePeriod) => {
@@ -49,12 +66,13 @@ const calculateStatementInterest = async (accountId, cycleStart, cycleEnd) => {
     ORDER BY settled_at ASC
   `, [accountId, cycleStart, cycleEnd]);
 
-  // Get account APR
+  // Get account APR — may be penalty rate if overdue
+  const effectiveApr = await getEffectiveAPR(accountId);
   const accountRes = await query(
     'SELECT apr, credit_limit FROM credit_accounts WHERE account_id = $1',
     [accountId]
   );
-  const { apr } = accountRes.rows[0];
+  const apr = effectiveApr;
 
   // Get repayments during cycle
   const repayments = await query(`
@@ -131,4 +149,7 @@ module.exports = {
   calculateTransactionInterest,
   calculateStatementInterest,
   calculateMinimumDue,
+  getEffectiveAPR,
+  BASE_APR,
+  PENALTY_APR,
 };

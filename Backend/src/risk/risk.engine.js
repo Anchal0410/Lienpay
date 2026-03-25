@@ -273,22 +273,24 @@ const evaluateCreditLimit = async (userId) => {
 
 // ── RISK TIER & INTEREST RATE ─────────────────────────────────
 const getRiskTier = (scoreBand, fraudScore, holdings) => {
-  // Tier A: Excellent bureau, low fraud, majority debt/large cap
+  // APR is flat 12% for all customers
+  // Tiers still used for credit limit adjustments, not pricing
+  // Penalty rate of 18% kicks in on overdue (handled in billing engine)
+  const BASE_APR = parseFloat(process.env.BASE_APR) || 12.00;
+
   const debtRatio = holdings.filter(h =>
     h.scheme_type?.startsWith('DEBT_') || h.scheme_type === 'EQUITY_LARGE_CAP'
   ).length / holdings.length;
 
   if (scoreBand === 'EXCELLENT' && fraudScore < 20 && debtRatio >= 0.5) {
-    return { tier: 'A', apr: parseFloat(process.env.APR_TIER_A) || 14.99 };
+    return { tier: 'A', apr: BASE_APR };
   }
 
-  // Tier B: Good bureau, moderate fraud
   if ((scoreBand === 'EXCELLENT' || scoreBand === 'GOOD') && fraudScore < 40) {
-    return { tier: 'B', apr: parseFloat(process.env.APR_TIER_B) || 15.99 };
+    return { tier: 'B', apr: BASE_APR };
   }
 
-  // Tier C: Fair bureau or higher fraud
-  return { tier: 'C', apr: parseFloat(process.env.APR_TIER_C) || 17.99 };
+  return { tier: 'C', apr: BASE_APR };
 };
 
 // ── LTV HEALTH CHECK (for existing accounts) ─────────────────

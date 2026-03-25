@@ -106,7 +106,7 @@ export default function Dashboard({ onPay }) {
             {[
               { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
               { l: 'LTV RATIO', v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR', v: `${account?.apr || '15.99'}%`, c: 'var(--text-secondary)' },
+              { l: 'APR', v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
                 <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 6 }}>{s.l}</p>
@@ -176,7 +176,7 @@ export default function Dashboard({ onPay }) {
               <span style={{ fontSize: 13, fontWeight: 600 }}>30 days interest-free on every payment</span>
             </div>
             <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              After that, just {((parseFloat(account?.apr || 15.99)) / 12).toFixed(2)}%/month. Credit cards charge 3%+.
+              After that, just {((parseFloat(account?.apr || 12)) / 12).toFixed(2)}%/month. Credit cards charge 3%+.
             </p>
           </div>
         </motion.div>

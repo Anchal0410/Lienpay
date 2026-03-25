@@ -216,9 +216,24 @@ const findUserByMobile = async (mobile) => {
 };
 
 const createUserFromMobile = async (mobile, deviceId) => {
+  // Check again right before insert (race condition guard)
+  const existing = await query('SELECT * FROM users WHERE mobile = $1', [mobile]);
+  if (existing.rows.length) {
+    // User exists (maybe soft-deleted or race condition) — return existing
+    if (existing.rows[0].deleted_at) {
+      // Reactivate soft-deleted user
+      await query('UPDATE users SET deleted_at = NULL, mobile_verified = true, device_fingerprint = $2, updated_at = NOW() WHERE user_id = $1', [existing.rows[0].user_id, deviceId]);
+    }
+    return existing.rows[0];
+  }
+
   const res = await query(`
     INSERT INTO users (mobile, mobile_verified, device_fingerprint, account_status, onboarding_step)
     VALUES ($1, true, $2, 'ONBOARDING', 'PAN_ENTRY')
+    ON CONFLICT (mobile) DO UPDATE SET
+      mobile_verified = true,
+      device_fingerprint = COALESCE($2, users.device_fingerprint),
+      updated_at = NOW()
     RETURNING *
   `, [mobile, deviceId]);
 
