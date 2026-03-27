@@ -342,15 +342,19 @@ const checkLTVHealth = async (userId, accountId) => {
   }
   const ltvRatio = outstanding / maxEligible;
 
-  // Drawdown calculation from peak for notifications
+  // Drawdown calculation from peak (optional — don't let it block the LTV check)
   const drawdowns = [];
-  for (const pledge of pledgesRes.rows) {
-    const { peak_nav } = await getPeakNAV(pledge.isin);
-    if (peak_nav && pledge.current_nav) {
-      const dd = ((peak_nav - pledge.current_nav) / peak_nav) * 100;
-      drawdowns.push({ isin: pledge.isin, drawdown_pct: dd });
+  try {
+    for (const pledge of pledgesRes.rows) {
+      try {
+        const { peak_nav } = await getPeakNAV(pledge.isin);
+        if (peak_nav && pledge.current_nav) {
+          const dd = ((peak_nav - parseFloat(pledge.current_nav)) / peak_nav) * 100;
+          drawdowns.push({ isin: pledge.isin, drawdown_pct: dd });
+        }
+      } catch(e) { /* skip this pledge's drawdown — DB might not have history */ }
     }
-  }
+  } catch(e) { /* drawdown calc is optional */ }
 
   // Determine health status
   const AMBER_THRESHOLD = 0.80; // 80% of max eligible

@@ -47,26 +47,36 @@ export default function Onboarding({ onComplete }) {
   const [riskData, setRiskData]           = useState(null)
   const [holdings, setHoldings]           = useState([])
   const [selectedFolios, setSelectedFolios] = useState([])
+  const [ltvOverrides, setLtvOverrides] = useState({}) // { folio_number: 0.40, ... }
 
   // Pledge
   const [pledges, setPledges] = useState([])
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep)
 
-  // Correct eligible calculation
-  // Backend returns ltv_cap as "40%" string, eligible_credit as pre-calculated number
+  // LTV options for dropdown
+  const LTV_OPTIONS = [
+    { label: '80%', value: 0.80, desc: 'Debt / Liquid' },
+    { label: '65%', value: 0.65, desc: 'Conservative Hybrid' },
+    { label: '50%', value: 0.50, desc: 'Balanced' },
+    { label: '40%', value: 0.40, desc: 'Large Cap / Index' },
+    { label: '35%', value: 0.35, desc: 'Flexi Cap' },
+    { label: '30%', value: 0.30, desc: 'Mid Cap' },
+    { label: '25%', value: 0.25, desc: 'Small Cap / Sectoral' },
+  ]
+
+  // Correct eligible calculation — uses override if set
   const parseLtv = (h) => {
+    if (ltvOverrides[h.folio_number] !== undefined) return ltvOverrides[h.folio_number]
     const raw = h.ltv_cap
     if (typeof raw === 'string' && raw.includes('%')) return parseFloat(raw) / 100
     const num = parseFloat(raw || 0)
-    return num > 1 ? num / 100 : num  // handle both 0.40 and 40
+    return num > 1 ? num / 100 : num
   }
-  const calcEligible = (h) => parseFloat(h.eligible_credit || Math.round(h.current_value * parseLtv(h)))
+  const calcEligible = (h) => Math.round(parseFloat(h.current_value || 0) * parseLtv(h))
   const formatLtv = (h) => {
-    const raw = h.ltv_cap
-    if (typeof raw === 'string' && raw.includes('%')) return raw  // already "40%"
-    const num = parseFloat(raw || 0)
-    return num > 1 ? `${num.toFixed(0)}%` : `${(num * 100).toFixed(0)}%`
+    const v = parseLtv(h)
+    return `${(v * 100).toFixed(0)}%`
   }
   const selectedEligible = holdings.filter(h => selectedFolios.includes(h.folio_number) && h.is_eligible)
   const selectedCredit = selectedEligible.reduce((s, h) => s + calcEligible(h), 0)
@@ -127,7 +137,10 @@ export default function Onboarding({ onComplete }) {
     if (selectedFolios.length === 0) return toast.error('Select at least one fund')
     setLoading(true)
     try {
-      const folios = selectedFolios.map(f => ({ folio_number: f }))
+      const folios = selectedFolios.map(f => ({
+        folio_number: f,
+        ltv_override: ltvOverrides[f] || undefined,
+      }))
       const res = await initiatePledge(folios)
       setPledges(res.data.pledges)
       setSubStep(1)
@@ -283,9 +296,16 @@ export default function Onboarding({ onComplete }) {
                           {h.scheme_name?.split(' - ')[0]}
                         </p>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                          <span style={{ fontSize: 9, color: color, fontWeight: 700, background: `${color}15`, padding: '2px 6px', borderRadius: 4 }}>
-                            {h.ltv_cap ? `${formatLtv(h)} LTV` : h.scheme_type?.replace(/_/g, ' ')}
-                          </span>
+                          <select
+                            value={parseLtv(h)}
+                            onChange={(e) => { e.stopPropagation(); setLtvOverrides(prev => ({ ...prev, [h.folio_number]: parseFloat(e.target.value) })) }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ fontSize: 10, color, fontWeight: 700, background: `${color}12`, padding: '3px 6px', borderRadius: 6,
+                              border: `1px solid ${color}30`, cursor: 'pointer', fontFamily: 'var(--font-mono)' }}>
+                            {LTV_OPTIONS.map(o => (
+                              <option key={o.value} value={o.value}>{o.label} — {o.desc}</option>
+                            ))}
+                          </select>
                           <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{h.rta}</span>
                         </div>
                       </div>

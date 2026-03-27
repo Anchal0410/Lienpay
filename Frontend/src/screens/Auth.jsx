@@ -19,8 +19,17 @@ export default function Auth() {
     if (mobile.length !== 10) return toast.error('Enter a valid 10-digit mobile number')
     setLoading(true)
     try {
-      await sendOTP(mobile)
-      toast.success('OTP sent!')
+      const res = await sendOTP(mobile)
+      // Dev mode: auto-fill OTP if backend sends hint
+      if (res?.data?.dev_otp) {
+        const devOtp = res.data.dev_otp.split('')
+        setOtp(devOtp)
+        toast.success(`OTP: ${res.data.dev_otp} (auto-filled)`)
+        // Auto-verify after a short delay so the user sees the OTP filled
+        setTimeout(() => handleVerify(res.data.dev_otp), 800)
+      } else {
+        toast.success('OTP sent!')
+      }
       setStep('otp')
     } catch (err) {
       toast.error(err.message || 'Failed to send OTP')

@@ -44,11 +44,14 @@ const validatePledgeSelection = async (userId, selectedFolios) => {
       throw { statusCode: 400, message: `Cannot pledge more units than held in folio ${selected.folio_number}` };
     }
 
-    const pledgeValue = unitsToPledge * holding.nav_at_fetch * holding.ltv_cap;
+    // Use LTV override if provided (founder-set per-fund LTV), else use auto-classified LTV
+    const effectiveLtv = selected.ltv_override || holding.ltv_cap;
+    const pledgeValue = unitsToPledge * holding.nav_at_fetch * effectiveLtv;
     totalEligibleValue += pledgeValue;
 
     validatedFolios.push({
       ...holding,
+      ltv_cap: effectiveLtv, // override stored LTV with selected value
       units_to_pledge: unitsToPledge,
       pledge_value:    pledgeValue,
     });

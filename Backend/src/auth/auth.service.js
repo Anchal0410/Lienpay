@@ -38,8 +38,11 @@ const sendOTP = async ({ mobile, ipAddress, deviceId }) => {
     throw { statusCode: 429, message: `OTP locked due to too many failed attempts. Try again in ${OTP_LOCKOUT_MINUTES} minutes.` };
   }
 
-  // 3. Generate 6-digit OTP
-  const otp     = String(Math.floor(100000 + Math.random() * 900000));
+  // 3. Generate OTP
+  // DEV MODE: Use fixed OTP 123456 until real SMS (MSG91) is connected
+  // Set OTP_MODE=random in Railway to use random OTPs with real SMS
+  const otpMode = process.env.OTP_MODE || 'dev';
+  const otp = otpMode === 'dev' ? '123456' : String(Math.floor(100000 + Math.random() * 900000));
   const otpHash = await bcrypt.hash(otp, 10);
 
   // 4. Store hash in Redis with expiry
@@ -64,7 +67,8 @@ const sendOTP = async ({ mobile, ipAddress, deviceId }) => {
   return {
     message:     `OTP sent to +91 XXXXX${mobile.slice(-5)}`,
     expires_in:  OTP_EXPIRY_SECONDS,
-    resend_after: 60, // seconds before resend is allowed
+    resend_after: 60,
+    ...(otpMode === 'dev' ? { dev_otp: otp, dev_hint: 'Use 123456 — dev mode active' } : {}),
   };
 };
 
