@@ -3,32 +3,18 @@ import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   submitKYCProfile, sendAadhaarOTP, verifyAadhaarOTP, submitCKYC, submitBureau,
-  initiateAAConsent, fetchPortfolio, evaluateRisk,
   initiatePledge, confirmPledgeOTP, notifyNBFC,
   requestSanction, getKFS, acceptKFS, activateCredit, setupPIN,
 } from '../api/client'
 import useStore from '../store/useStore'
 import { LiquidBlob } from '../components/LiquidUI'
+import { FUND_UNIVERSE, SCHEME_TYPE_META } from '../data/fundUniverse'
 
-// ── LTV rates per category (matches fund.classifier.js backend) ──
-const CATEGORY_LTV = {
-  EQUITY_LARGE_CAP:  { rate: 0.50, label: 'Large Cap Equity',      color: '#00D4A1' },
-  EQUITY_MID_CAP:    { rate: 0.30, label: 'Mid Cap Equity',         color: '#C9A449' },
-  EQUITY_SMALL_CAP:  { rate: 0.25, label: 'Small Cap Equity',       color: '#EF4444' },
-  EQUITY_FLEXI_CAP:  { rate: 0.40, label: 'Flexi / Multi Cap',      color: '#8B5CF6' },
-  EQUITY_ELSS:       { rate: 0.40, label: 'ELSS (Tax Saver)',        color: '#8B5CF6' },
-  INDEX_FUND:        { rate: 0.50, label: 'Index Fund / ETF',        color: '#00D4A1' },
-  ETF:               { rate: 0.50, label: 'ETF',                     color: '#00D4A1' },
-  DEBT_LIQUID:       { rate: 0.80, label: 'Liquid / Overnight',      color: '#3B82F6' },
-  DEBT_SHORT_DUR:    { rate: 0.80, label: 'Short Duration Debt',     color: '#3B82F6' },
-  DEBT_CORPORATE:    { rate: 0.75, label: 'Corporate Bond',          color: '#06B6D4' },
-  DEBT_GILT:         { rate: 0.75, label: 'Gilt / G-Sec',            color: '#06B6D4' },
-  HYBRID_BALANCED:   { rate: 0.50, label: 'Balanced / Hybrid',       color: '#F59E0B' },
-  HYBRID_AGGRESSIVE: { rate: 0.40, label: 'Aggressive Hybrid',       color: '#F59E0B' },
+const getCategoryInfo = (schemeType) => {
+  const meta = SCHEME_TYPE_META[schemeType]
+  if (meta) return { rate: meta.ltv, label: meta.label, color: meta.color }
+  return { rate: 0.40, label: schemeType?.replace(/_/g,' ') || 'Equity', color: '#7A8F85' }
 }
-
-const getCategoryInfo = (schemeType) =>
-  CATEGORY_LTV[schemeType] || { rate: 0.40, label: schemeType?.replace(/_/g,' ') || 'Equity', color: '#7A8F85' }
 
 const STEPS = [
   { id: 'KYC',       title: 'Verify Identity',  icon: '🪪', sub: 'PAN & Aadhaar' },
@@ -170,20 +156,63 @@ export default function Onboarding({ onComplete }) {
   }
 
   // ── PORTFOLIO ─────────────────────────────────────────────────
+  // Fetches live NAVs from mfapi.in for the curated fund universe.
+  // In production this will be replaced by real AA data.
   const handleLinkPortfolio = async () => {
     setLoading(true)
     try {
-      const consentRes   = await initiateAAConsent()
-      const portfolioRes = await fetchPortfolio(consentRes.data.consent_id)
-      const riskRes      = await evaluateRisk()
-      setPortfolioData(portfolioRes.data)
-      setRiskData(riskRes.data)
-      const allHoldings = portfolioRes.data.holdings || []
+      toast.loading('Fetching live NAVs...', { id: 'nav-fetch' })
+
+      // Fetch all NAVs in parallel from mfapi.in
+      const navResults = await Promise.allSettled(
+        FUND_UNIVERSE.map(f =>
+          fetch(`https://api.mfapi.in/mf/${f.scheme_code}`)
+            .then(r => r.json())
+            .catch(() => null)
+        )
+      )
+
+      toast.dismiss('nav-fetch')
+
+      // Build holdings from real NAVs + mock units
+      const allHoldings = FUND_UNIVERSE.map((fund, i) => {
+        const result = navResults[i]
+        const navData = result.status === 'fulfilled' ? result.value : null
+        const nav     = parseFloat(navData?.data?.[0]?.nav || 0)
+        if (nav <= 0) return null
+
+        const cat     = getCategoryInfo(fund.scheme_type)
+        const value   = Math.round(fund.mock_units * nav)
+        const eligible = Math.round(value * cat.rate)
+
+        return {
+          folio_number:   `${fund.rta}${fund.scheme_code}`,
+          scheme_name:    fund.name,
+          scheme_type:    fund.scheme_type,
+          rta:            fund.rta,
+          ltv_cap:        `${Math.round(cat.rate * 100)}%`,
+          units_held:     fund.mock_units,
+          nav_at_fetch:   nav,
+          current_value:  value,
+          value_at_fetch: value,
+          is_eligible:    true,
+          eligible_credit: eligible,
+        }
+      }).filter(Boolean)
+
+      if (allHoldings.length === 0) {
+        toast.error('Could not fetch fund data. Check connection.')
+        return
+      }
+
       setHoldings(allHoldings)
-      setSelectedFolios(allHoldings.filter(h => h.is_eligible).map(h => h.folio_number))
+      setSelectedFolios(allHoldings.map(h => h.folio_number))
       setSubStep(1)
-      toast.success(`${portfolioRes.data.eligible_funds} eligible funds found!`)
-    } catch (err) { toast.error(err.message) }
+      toast.success(`${allHoldings.length} funds loaded with live NAVs!`)
+    } catch (err) {
+      toast.dismiss('nav-fetch')
+      toast.error(err.message)
+    }
     finally { setLoading(false) }
   }
 
@@ -312,12 +341,12 @@ export default function Onboarding({ onComplete }) {
           {currentStep==='PORTFOLIO' && subStep===1 && (
             <motion.div key="port1" initial={{opacity:0,x:30}} animate={{opacity:1,x:0}} exit={{opacity:0}}>
 
-              {/* ── MOCK BANNER ── */}
-              <div style={{ background:'rgba(224,160,48,0.08)', border:'1px solid rgba(224,160,48,0.25)', borderRadius:14, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
-                <span style={{ fontSize:18, flexShrink:0 }}>⚠️</span>
+              {/* ── LIVE NAV BANNER ── */}
+              <div style={{ background:'var(--jade-dim)', border:'1px solid var(--jade-border)', borderRadius:14, padding:'12px 14px', marginBottom:16, display:'flex', gap:10, alignItems:'flex-start' }}>
+                <span style={{ fontSize:18, flexShrink:0 }}>📡</span>
                 <div>
-                  <p style={{ fontSize:12, fontWeight:700, color:'#E0A030', marginBottom:3 }}>DEMO DATA</p>
-                  <p style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.5 }}>In production, real fund data is fetched via Account Aggregator. LTV rates are assigned per SEBI/RBI fund category classifications.</p>
+                  <p style={{ fontSize:12, fontWeight:700, color:'var(--jade)', marginBottom:3 }}>LIVE NAVs · DEMO UNITS</p>
+                  <p style={{ fontSize:11, color:'var(--text-secondary)', lineHeight:1.5 }}>Fund values use today's real NAVs from AMFI. Units shown are demo data — in production, real holdings are fetched via Account Aggregator.</p>
                 </div>
               </div>
 
