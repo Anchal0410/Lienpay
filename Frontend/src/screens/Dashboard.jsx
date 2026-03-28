@@ -1,4 +1,33 @@
 import { useEffect, useState, useRef } from 'react'
+
+// ── Scroll-reveal wrapper ─────────────────────────────────────
+// Uses IntersectionObserver (native browser API — no framer dep).
+// The .screen div fills the viewport (position:absolute; inset:0)
+// so the browser viewport == the scroll container here.
+// Items start invisible and animate in when they enter the viewport.
+function FadeInCard({ children, delay = 0 }) {
+  const ref = useRef(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisible(true) },
+      { threshold: 0.05, rootMargin: '0px 0px -20px 0px' }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+  return (
+    <div ref={ref} style={{
+      opacity: visible ? 1 : 0,
+      transform: visible ? 'translateY(0)' : 'translateY(18px)',
+      transition: `opacity 0.4s ease ${delay}s, transform 0.4s ease ${delay}s`,
+    }}>
+      {children}
+    </div>
+  )
+}
 import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
@@ -218,10 +247,8 @@ export default function Dashboard({ onPay }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {(showAllTxns ? transactions : transactions.slice(0, 5)).map((txn, i) => (
-                <motion.div key={txn.txn_id}
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 + i * 0.07, duration: 0.35 }}
+                <FadeInCard key={txn.txn_id} delay={i * 0.06}>
+                <div
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -242,7 +269,8 @@ export default function Dashboard({ onPay }) {
                       {txn.status}
                     </p>
                   </div>
-                </motion.div>
+                </div>
+                </FadeInCard>
               ))}
             </div>
           )}
