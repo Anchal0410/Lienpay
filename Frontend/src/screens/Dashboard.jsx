@@ -219,7 +219,10 @@ export default function Dashboard({ onPay }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {(showAllTxns ? transactions : transactions.slice(0, 5)).map((txn, i) => (
                 <motion.div key={txn.txn_id}
-                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.3 }}
+                  initial={{ opacity: 0, y: 18 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true, root: scrollRef, margin: '0px 0px -40px 0px' }}
+                  transition={{ delay: i * 0.07, duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
                   style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
