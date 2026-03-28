@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
-import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
+import { CreditRing, LiquidBlob, useScrollY } from '../components/LiquidUI'
 import NotifBell from '../components/NotifBell'
 
 const fmt = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -218,31 +218,29 @@ export default function Dashboard({ onPay }) {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {(showAllTxns ? transactions : transactions.slice(0, 5)).map((txn, i) => (
-                <ScrollReveal key={txn.txn_id} scrollY={scrollY} triggerAt={250 + i * 50}>
-                  <motion.div
-                    initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
-                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <div style={{ width: 42, height: 42, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-                        🏪
-                      </div>
-                      <div>
-                        <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{txn.merchant_name || txn.merchant_vpa}</p>
-                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                          {new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                          {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6, fontWeight: 700 }}>· Free</span>}
-                        </p>
-                      </div>
+                <motion.div key={txn.txn_id}
+                  initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06, duration: 0.3 }}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                      🏪
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>−₹{fmt(txn.amount)}</p>
-                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.5px' }}>
-                        {txn.status}
+                    <div>
+                      <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{txn.merchant_name || txn.merchant_vpa}</p>
+                      <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                        {new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6, fontWeight: 700 }}>· Free</span>}
                       </p>
                     </div>
-                  </motion.div>
-                </ScrollReveal>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                    <p style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>−₹{fmt(txn.amount)}</p>
+                    <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.5px' }}>
+                      {txn.status}
+                    </p>
+                  </div>
+                </motion.div>
               ))}
             </div>
           )}
