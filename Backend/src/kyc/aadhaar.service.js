@@ -30,6 +30,7 @@ const mockSendAadhaarOTP = async (aadhaarLast4, userId) => {
     txn_id:   txnId,
     message:  'OTP sent to Aadhaar-linked mobile number',
     mock:     true,
+    dev_otp:  '421980', // ← DEV BYPASS: mirrors auth OTP pattern. Remove when AADHAAR_MODE=real
   };
 };
 
