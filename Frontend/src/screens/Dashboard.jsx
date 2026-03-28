@@ -54,7 +54,6 @@ export default function Dashboard({ onPay }) {
   const ltvRatio    = ltv?.ltv_ratio || 0
   const ltvColor    = ltv?.status === 'RED' ? 'var(--red)' : ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
 
-  // Scroll-driven transforms
   const ringScale   = Math.max(0.88, 1 - scrollY / 500)
   const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
   const headerY     = Math.min(0, -scrollY * 0.12)
@@ -68,33 +67,46 @@ export default function Dashboard({ onPay }) {
 
   return (
     <div ref={scrollRef} className="screen">
-      {/* Liquid blobs — parallax with scroll */}
+      {/* Liquid blobs — parallax */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         <LiquidBlob size={320} color="var(--jade)" top={`${-100 - scrollY * 0.2}px`} right="-80px" />
         <LiquidBlob size={200} color="var(--jade)" top={`${400 - scrollY * 0.1}px`} left="-60px" delay={3} />
         <LiquidBlob size={160} color="#4DA8FF" top={`${700 - scrollY * 0.15}px`} right="-30px" delay={5} />
       </div>
 
+      {/*
+        ── NOTIFICATION BELL ──────────────────────────────────────────────
+        Rendered here at the ROOT of the component, NOT inside the parallax
+        header div that has transform: translateY() on it.
+
+        CSS rule: position:fixed breaks inside any ancestor with a CSS
+        transform applied. The bell's backdrop + bottom sheet are fixed —
+        so they must live outside any transformed parent.
+
+        The bell button itself is absolutely positioned top-right.
+        ───────────────────────────────────────────────────────────────── */}
+      <div style={{ position: 'absolute', top: 28, right: 22, zIndex: 20 }}>
+        <NotifBell ltvStatus={ltv?.status} />
+      </div>
+
       <div style={{ position: 'relative', zIndex: 1, padding: '0 22px' }}>
 
-        {/* ── Header ── */}
+        {/* Header — parallax shift. No transform children with fixed descendants. */}
         <div style={{ paddingTop: 20, paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', transform: `translateY(${headerY}px)` }}>
           <div>
             <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>LIENPAY</p>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
-          {/* ── NOTIFICATION BELL — wired with ltvStatus for badge colour ── */}
-          <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
-            <NotifBell ltvStatus={ltv?.status} />
-          </div>
+          {/* Empty right side — bell is absolutely positioned above */}
+          <div style={{ width: 38 }} />
         </div>
 
-        {/* ── Credit Ring ── */}
+        {/* Credit Ring */}
         <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 8, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
           <CreditRing limit={creditLimit} available={available} />
         </div>
 
-        {/* ── CLOU badge ── */}
+        {/* CLOU badge */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--jade)', animation: 'breathe 3s ease-in-out infinite' }} />
@@ -103,7 +115,7 @@ export default function Dashboard({ onPay }) {
           <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Closed credit line · Only inside LienPay</p>
         </div>
 
-        {/* ── Stats ── */}
+        {/* Stats */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
             {[
@@ -119,7 +131,7 @@ export default function Dashboard({ onPay }) {
           </div>
         </motion.div>
 
-        {/* ── LTV alert banner (only when amber/red) ── */}
+        {/* LTV alert — amber/red only */}
         <AnimatePresence>
           {ltv && ltv.status !== 'GREEN' && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2 }}
@@ -134,13 +146,13 @@ export default function Dashboard({ onPay }) {
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>{ltv.message}</p>
               <div style={{ display: 'flex', gap: 8 }}>
                 <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('billing')}
-                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)', border: 'none', cursor: 'pointer' }}>
+                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer',
+                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)' }}>
                   Repay Now
                 </motion.button>
                 <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('portfolio')}
-                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)', cursor: 'pointer' }}>
+                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)', cursor: 'pointer',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}>
                   Add Collateral
                 </motion.button>
               </div>
@@ -148,7 +160,7 @@ export default function Dashboard({ onPay }) {
           )}
         </AnimatePresence>
 
-        {/* ── Pay CTA ── */}
+        {/* Pay CTA */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }}>
           <motion.button
             whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
@@ -172,7 +184,7 @@ export default function Dashboard({ onPay }) {
           </motion.button>
         </motion.div>
 
-        {/* ── 30-day interest explainer ── */}
+        {/* 30-day explainer */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5 }}>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -187,7 +199,7 @@ export default function Dashboard({ onPay }) {
           </div>
         </motion.div>
 
-        {/* ── Transactions ── */}
+        {/* Transactions */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>{showAllTxns ? 'All Transactions' : 'Recent'}</h2>
@@ -210,8 +222,7 @@ export default function Dashboard({ onPay }) {
                   <motion.div
                     initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.07 }}
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      background: 'var(--bg-surface)', border: '1px solid var(--border)',
-                      borderRadius: 16, padding: '14px 16px' }}>
+                      background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                       <div style={{ width: 42, height: 42, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
                         🏪
