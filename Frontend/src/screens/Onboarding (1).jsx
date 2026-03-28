@@ -396,7 +396,7 @@ export default function Onboarding({ onComplete }) {
               })}
 
               <div style={{ height:12 }}/>
-              <CTA onClick={handleInitiatePledge} loading={loading} label={`Pledge Selected · ${fmtL(selectedCredit)} →`} disabled={selectedFolios.length===0}/>
+              <CTA onClick={() => { setCurrentStep('PLEDGE'); setSubStep(0) }} loading={false} label={`Pledge Selected · ${fmtL(selectedCredit)} →`} disabled={selectedFolios.length===0}/>
             </motion.div>
           )}
 
