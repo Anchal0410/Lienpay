@@ -325,11 +325,11 @@ export default function Portfolio() {
                 +
               </div>
               <div style={{textAlign:'left'}}>
-                <p style={{fontSize:13,fontWeight:600,color:'var(--jade)'}}>Add more collateral</p>
+                <p style={{fontSize:13,fontWeight:600,color:'var(--jade)'}}>Pledge more funds</p>
                 <p style={{fontSize:11,color:'var(--text-muted)',marginTop:1}}>
                   {unpledgedH.length > 0
-                    ? `${unpledgedH.length} eligible fund${unpledgedH.length!==1?'s':''} available`
-                    : 'All linked funds are pledged'}
+                    ? `${unpledgedH.length} fund${unpledgedH.length!==1?'s':''} available`
+                    : 'All your funds are already pledged'}
                 </p>
               </div>
             </div>
@@ -352,7 +352,7 @@ export default function Portfolio() {
                   /* All funds already pledged */
                   <div style={{background:'var(--bg-surface)',padding:'24px 20px',textAlign:'center'}}>
                     <p style={{fontSize:28,marginBottom:10}}>✅</p>
-                    <p style={{fontSize:14,fontWeight:600,color:'var(--text-secondary)',marginBottom:6}}>All connected funds are pledged</p>
+                    <p style={{fontSize:14,fontWeight:600,color:'var(--text-secondary)',marginBottom:6}}>All your connected funds are already pledged</p>
                     <p style={{fontSize:12,color:'var(--text-muted)',lineHeight:1.6}}>
                       Your full eligible credit limit is active. To add more funds, complete a new portfolio link from your account settings.
                     </p>
