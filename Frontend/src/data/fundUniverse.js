@@ -7,12 +7,14 @@
 // ─────────────────────────────────────────────────────────────
 
 export const SCHEME_TYPE_META = {
-  EQUITY_LARGE_CAP:     { label: 'Large Cap',       ltv: 0.40, color: '#00D4A1' },
-  EQUITY_LARGE_MID_CAP: { label: 'Large & Mid Cap', ltv: 0.35, color: '#06B6D4' },
-  EQUITY_MID_CAP:       { label: 'Mid Cap',         ltv: 0.40, color: '#C9A449' },
-  EQUITY_SMALL_CAP:     { label: 'Small Cap',       ltv: 0.25, color: '#EF4444' },
-  EQUITY_FLEXI_CAP:     { label: 'Flexi Cap',       ltv: 0.35, color: '#8B5CF6' },
-  INDEX_FUND:           { label: 'Index Fund',      ltv: 0.40, color: '#00D4A1' },
+  // Colors chosen to be visually distinct from each other AND from jade (#00D4A1)
+  // which is the "selected" state colour. Never use jade/green for a category.
+  EQUITY_LARGE_CAP:     { label: 'Large Cap',       ltv: 0.40, color: '#3B82F6' },  // blue
+  EQUITY_LARGE_MID_CAP: { label: 'Large & Mid Cap', ltv: 0.35, color: '#06B6D4' },  // cyan
+  EQUITY_MID_CAP:       { label: 'Mid Cap',         ltv: 0.40, color: '#F59E0B' },  // amber
+  EQUITY_SMALL_CAP:     { label: 'Small Cap',       ltv: 0.25, color: '#EF4444' },  // red
+  EQUITY_FLEXI_CAP:     { label: 'Flexi Cap',       ltv: 0.35, color: '#8B5CF6' },  // purple
+  INDEX_FUND:           { label: 'Index Fund',      ltv: 0.40, color: '#10B981' },  // emerald
 }
 
 export const FUND_UNIVERSE = [
