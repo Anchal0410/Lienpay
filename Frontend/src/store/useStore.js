@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 
-const useStore = create((set, get) => ({
+const useStore = create((set) => ({
   // ── AUTH ──────────────────────────────────────
-  token:   localStorage.getItem('lp_token') || null,
-  user:    JSON.parse(localStorage.getItem('lp_user') || 'null'),
+  token: localStorage.getItem('lp_token') || null,
+  user:  JSON.parse(localStorage.getItem('lp_user') || 'null'),
 
   setAuth: (token, user) => {
     localStorage.setItem('lp_token', token)
@@ -11,14 +11,27 @@ const useStore = create((set, get) => ({
     set({ token, user })
   },
 
+  // clearAuth resets EVERYTHING — token, step, all cached data.
+  // This ensures logout always lands on the Auth screen with a clean state.
   clearAuth: () => {
     localStorage.removeItem('lp_token')
     localStorage.removeItem('lp_user')
-    set({ token: null, user: null })
+    localStorage.removeItem('lp_step')
+    set({
+      token:         null,
+      user:          null,
+      onboardingStep:'AUTH',
+      portfolio:     null,
+      riskDecision:  null,
+      creditAccount: null,
+      ltvHealth:     null,
+      transactions:  [],
+      statements:    [],
+      activeTab:     'home',
+    })
   },
 
   // ── ONBOARDING STEP ───────────────────────────
-  // STEPS: AUTH → KYC → PORTFOLIO → PLEDGE → CREDIT → ACTIVE
   onboardingStep: localStorage.getItem('lp_step') || 'AUTH',
   setOnboardingStep: (step) => {
     localStorage.setItem('lp_step', step)

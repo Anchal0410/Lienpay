@@ -70,6 +70,7 @@ app.use('/api/admin',               require('./src/admin/admin.routes'));
 app.use('/api/admin/stress',        require('./src/admin/stress.routes'));
 app.use('/api/admin/fund-universe', require('./src/admin/fund-universe.admin.routes'));
 app.use('/api/lender',              require('./src/lender/lender.routes'));
+app.use('/api/notifications',       require('./src/notifications/notifications.routes'));
 
 // ── 404 HANDLER ──────────────────────────────────────────────
 app.use('*', (req, res) => {

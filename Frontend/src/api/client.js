@@ -19,9 +19,9 @@ const request = async (method, path, body) => {
     if (res.status === 401) {
       localStorage.removeItem('lp_token')
       localStorage.removeItem('lp_user')
+      localStorage.removeItem('lp_step')
       window.location.href = '/'
     }
-    // Parse validation errors (422) — show specific field messages
     if (res.status === 422 && data.errors && Array.isArray(data.errors)) {
       const msgs = data.errors.map(e => e.msg || e.message).filter(Boolean)
       throw new Error(msgs.join('. ') || 'Validation failed')
@@ -32,21 +32,21 @@ const request = async (method, path, body) => {
   return data
 }
 
-const get  = (path)        => request('GET',  path)
-const post = (path, body)  => request('POST', path, body)
+const get  = (path)       => request('GET',  path)
+const post = (path, body) => request('POST', path, body)
 
 // ── AUTH ───────────────────────────────────────
-export const sendOTP   = (mobile)      => post('/api/auth/send-otp',    { mobile })
-export const verifyOTP = (mobile, otp) => post('/api/auth/verify-otp',  { mobile, otp })
-export const logout    = ()            => post('/api/auth/logout',       {})
+export const sendOTP   = (mobile)      => post('/api/auth/send-otp',   { mobile })
+export const verifyOTP = (mobile, otp) => post('/api/auth/verify-otp', { mobile, otp })
+export const logout    = ()            => post('/api/auth/logout',      {})
 export const getMe     = ()            => get('/api/auth/me')
 
 // ── KYC ───────────────────────────────────────
-export const submitKYCProfile  = (data) => post('/api/kyc/profile',              data)
-export const sendAadhaarOTP    = (data) => post('/api/kyc/aadhaar/send-otp',     data)
-export const verifyAadhaarOTP  = (data) => post('/api/kyc/aadhaar/verify-otp',   data)
-export const submitCKYC        = ()     => post('/api/kyc/ckyc',                 {})
-export const submitBureau      = ()     => post('/api/kyc/bureau',               { consent_given: true })
+export const submitKYCProfile  = (data) => post('/api/kyc/profile',            data)
+export const sendAadhaarOTP    = (data) => post('/api/kyc/aadhaar/send-otp',   data)
+export const verifyAadhaarOTP  = (data) => post('/api/kyc/aadhaar/verify-otp', data)
+export const submitCKYC        = ()     => post('/api/kyc/ckyc',               {})
+export const submitBureau      = ()     => post('/api/kyc/bureau',             { consent_given: true })
 
 // ── PORTFOLIO ─────────────────────────────────
 export const initiateAAConsent  = ()           => post('/api/portfolio/aa/consent', {})
@@ -59,31 +59,35 @@ export const getRiskDecision = ()  => get('/api/risk/decision')
 export const getLTVHealth    = ()  => get('/api/risk/ltv-health')
 
 // ── PLEDGE ────────────────────────────────────
-export const validatePledge   = (folios)           => post('/api/pledge/validate',    { selected_folios: folios })
-export const initiatePledge   = (folios)           => post('/api/pledge/initiate',    { selected_folios: folios })
-export const confirmPledgeOTP = (pledge_id, otp)   => post('/api/pledge/confirm-otp', { pledge_id, otp })
-export const notifyNBFC       = (pledge_ids)       => post('/api/pledge/notify-nbfc', { pledge_ids })
-export const getPledgeStatus  = ()                 => get('/api/pledge/status')
+export const validatePledge   = (folios)         => post('/api/pledge/validate',    { selected_folios: folios })
+export const initiatePledge   = (folios)         => post('/api/pledge/initiate',    { selected_folios: folios })
+export const confirmPledgeOTP = (pledge_id, otp) => post('/api/pledge/confirm-otp', { pledge_id, otp })
+export const notifyNBFC       = (pledge_ids)     => post('/api/pledge/notify-nbfc', { pledge_ids })
+export const getPledgeStatus  = ()               => get('/api/pledge/status')
 
 // ── CREDIT ────────────────────────────────────
-export const requestSanction = ()     => post('/api/credit/sanction',    {})
+export const requestSanction = ()     => post('/api/credit/sanction',   {})
 export const getKFS          = (p)    => get(`/api/credit/kfs?sanction_id=${p.sanction_id}&approved_limit=${p.approved_limit}&apr=${p.apr}`)
-export const acceptKFS       = (data) => post('/api/credit/kfs/accept',  data)
-export const activateCredit  = ()     => post('/api/credit/activate',    {})
+export const acceptKFS       = (data) => post('/api/credit/kfs/accept', data)
+export const activateCredit  = ()     => post('/api/credit/activate',   {})
 export const getCreditStatus = ()     => get('/api/credit/status')
-export const setupPIN        = ()     => post('/api/txn/pin/setup',      {})
+export const setupPIN        = ()     => post('/api/txn/pin/setup',     {})
 
 // ── TRANSACTIONS ──────────────────────────────
-export const initiatePayment = (data)    => post('/api/txn/initiate',    data)
-export const mockSettle      = (txn_id)  => post('/api/txn/mock-settle', { txn_id })
+export const initiatePayment = (data)   => post('/api/txn/initiate',    data)
+export const mockSettle      = (txn_id) => post('/api/txn/mock-settle', { txn_id })
 export const getTxnHistory   = (params) => get(`/api/txn/history?limit=${params?.limit || 20}&offset=${params?.offset || 0}`)
 export const decodeQR        = (qr)     => post('/api/txn/decode-qr',   { qr_string: qr })
 
 // ── BILLING ───────────────────────────────────
 export const getStatements = ()       => get('/api/billing/statements')
 export const getStatement  = (id)     => get(`/api/billing/statements/${id}`)
-export const mockRepay     = (amount) => post('/api/billing/repay/mock', { amount })
+export const mockRepay     = (amount) => post('/api/billing/repay/mock',     { amount })
 export const initiateRepay = (amount) => post('/api/billing/repay/initiate', { amount })
-export const getRepayments = ()      => get('/api/billing/repayments')
+export const getRepayments = ()       => get('/api/billing/repayments')
+
+// ── NOTIFICATIONS ─────────────────────────────
+export const getNotifications       = ()    => get('/api/notifications')
+export const markNotificationsRead  = (ids) => post('/api/notifications/mark-read', { notification_ids: ids })
 
 export default { get, post }

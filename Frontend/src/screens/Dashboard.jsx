@@ -248,7 +248,7 @@ export default function Dashboard({ onPay }) {
           )}
         </div>
 
-        <div style={{ height: 32 }} />
+        <div style={{ height: 96 }} />
       </div>
     </div>
   )
