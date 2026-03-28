@@ -14,7 +14,7 @@ export const SCHEME_TYPE_META = {
   EQUITY_MID_CAP:       { label: 'Mid Cap',         ltv: 0.40, color: '#F59E0B' },  // amber
   EQUITY_SMALL_CAP:     { label: 'Small Cap',       ltv: 0.25, color: '#EF4444' },  // red
   EQUITY_FLEXI_CAP:     { label: 'Flexi Cap',       ltv: 0.35, color: '#8B5CF6' },  // purple
-  INDEX_FUND:           { label: 'Index Fund',      ltv: 0.40, color: '#10B981' },  // emerald
+  INDEX_FUND:           { label: 'Index Fund',      ltv: 0.40, color: '#F472B6' },  // pink — fully distinct from jade
 }
 
 export const FUND_UNIVERSE = [

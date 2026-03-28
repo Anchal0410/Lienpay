@@ -8,16 +8,13 @@ const { logger } = require('../../config/logger');
 const initiateConsent = async (req, res) => {
   try {
     const user   = await require('../../config/database').query(
-      'SELECT mobile FROM users WHERE user_id = $1', [req.user.user_id]
+      'SELECT mobile FROM users WHERE user_id=$1', [req.user.user_id]
     );
-    const mobile = user.rows[0]?.mobile;
-
     const result = await portfolioService.initiateAAConsent({
       userId: req.user.user_id,
-      mobile,
+      mobile: user.rows[0]?.mobile,
       ipHash: hash(req.ip),
     });
-
     return success(res, result, 'Account Aggregator consent initiated');
   } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
@@ -30,18 +27,29 @@ const initiateConsent = async (req, res) => {
 const fetchPortfolio = async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) return validationError(res, errors.array());
-
   try {
-    const { consent_id } = req.body;
     const result = await portfolioService.fetchAndProcessPortfolio({
       userId:    req.user.user_id,
-      consentId: consent_id,
+      consentId: req.body.consent_id,
     });
-
     return success(res, result, 'Portfolio fetched and processed successfully');
   } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('fetchPortfolio error:', err);
+    return serverError(res);
+  }
+};
+
+// POST /api/portfolio/save-holdings  (DEV/DEMO ONLY — blocked in production)
+const saveHoldings = async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return validationError(res, errors.array());
+  try {
+    const result = await portfolioService.saveBulkHoldings(req.user.user_id, req.body.holdings);
+    return success(res, result, 'Holdings saved (dev mode)');
+  } catch (err) {
+    if (err.statusCode) return error(res, err.message, err.statusCode);
+    logger.error('saveHoldings error:', err);
     return serverError(res);
   }
 };
@@ -57,4 +65,4 @@ const getSummary = async (req, res) => {
   }
 };
 
-module.exports = { initiateConsent, fetchPortfolio, getSummary };
+module.exports = { initiateConsent, fetchPortfolio, saveHoldings, getSummary };
