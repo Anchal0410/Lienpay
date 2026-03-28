@@ -43,7 +43,6 @@ const submitProfile = async ({ userId, pan, fullName, dob, email, ipHash, device
   // 3. AML screening
   const amlResult = await screenAML(pan, fullName, dob, userId);
   if (amlResult.result === 'FAIL') {
-    // Log rejection — do NOT tell user why in detail (security)
     audit('KYC_AML_REJECTED', userId, { pan_last4: pan.slice(-4) });
     throw { statusCode: 400, message: 'We are unable to proceed with your application at this time.' };
   }
@@ -126,6 +125,11 @@ const initiateAadhaarKYC = async ({ userId, aadhaarLast4, ipHash }) => {
   return {
     txn_id:  result.txn_id,
     message: result.message,
+    // ── FIX: pass dev_otp through to frontend so it can auto-fill ──
+    // aadhaar.service.js only returns dev_otp when AADHAAR_MODE=mock.
+    // In production (AADHAAR_MODE=real) result.dev_otp is undefined,
+    // so the spread is a no-op and nothing leaks.
+    ...(result.dev_otp ? { dev_otp: result.dev_otp } : {}),
   };
 };
 
@@ -147,17 +151,17 @@ const verifyAadhaarKYC = async ({ userId, txnId, otp, ipHash }) => {
   // Save KYC record — store ONLY last 4 of Aadhaar
   await query(`
     UPDATE kyc_records SET
-      aadhaar_txn_ref   = $2,
-      name_from_aadhaar = $3,
-      dob_from_aadhaar  = $4,
-      gender_from_aadhaar = $5,
+      aadhaar_txn_ref      = $2,
+      name_from_aadhaar    = $3,
+      dob_from_aadhaar     = $4,
+      gender_from_aadhaar  = $5,
       address_from_aadhaar = $6,
-      photo_hash        = $7,
-      aadhaar_last4     = $8,
-      name_match_score  = $9,
-      name_match_pass   = $10,
-      status            = 'AADHAAR_OTP_VERIFIED',
-      updated_at        = NOW()
+      photo_hash           = $7,
+      aadhaar_last4        = $8,
+      name_match_score     = $9,
+      name_match_pass      = $10,
+      status               = 'AADHAAR_OTP_VERIFIED',
+      updated_at           = NOW()
     WHERE user_id = $1
   `, [
     userId,
@@ -207,16 +211,13 @@ const processCKYC = async ({ userId }) => {
 
   const { date_of_birth } = user.rows[0];
 
-  // Get full KYC data for CKYC creation
   const kycRecord = await query(
     'SELECT * FROM kyc_records WHERE user_id = $1',
     [userId]
   );
-
   const kycData = kycRecord.rows[0];
 
-  // Search CKYC registry
-  const pan = user.rows[0].pan_last4; // use last4 for mock; decrypt for real
+  const pan = user.rows[0].pan_last4;
   const searchResult = await searchCKYC(pan, date_of_birth, userId);
 
   let ckycId;
@@ -226,7 +227,6 @@ const processCKYC = async ({ userId }) => {
     ckycId     = searchResult.ckyc_id;
     ckycAction = 'FETCHED';
   } else {
-    // Create new CKYC record
     const createResult = await createCKYC({
       pan:      pan,
       name:     kycData?.name_from_aadhaar,
@@ -236,111 +236,71 @@ const processCKYC = async ({ userId }) => {
       kyc_type: 'AADHAAR_OTP',
       kyc_ref:  kycData?.aadhaar_txn_ref,
     }, userId);
-
     ckycId     = createResult.ckyc_id;
     ckycAction = 'CREATED';
   }
 
-  // Save CKYC to both tables
   await query(`
-    UPDATE kyc_records SET
-      ckyc_id          = $2,
-      ckyc_action      = $3,
-      ckyc_verified_at = NOW(),
-      status           = 'CKYC_DONE',
-      updated_at       = NOW()
-    WHERE user_id = $1
-  `, [userId, ckycId, ckycAction]);
-
-  await query(`
-    UPDATE users SET
-      ckyc_id          = $2,
-      ckyc_verified_at = NOW(),
-      updated_at       = NOW()
-    WHERE user_id = $1
+    UPDATE kyc_records SET ckyc_id = $2, updated_at = NOW() WHERE user_id = $1
   `, [userId, ckycId]);
 
-  return { ckyc_id: ckycId, action: ckycAction, next_step: 'BUREAU' };
+  await query(`
+    UPDATE users SET ckyc_id = $2, updated_at = NOW() WHERE user_id = $1
+  `, [userId, ckycId]);
+
+  return { ckyc_id: ckycId, action: ckycAction };
 };
 
-// ── STEP 6: Bureau pull (negative filter) ────────────────────
-const processBureau = async ({ userId, consentId, ipHash }) => {
-  // Log bureau consent
-  const consent = await logConsent({
-    userId,
-    consentType: CONSENT_TYPES.BUREAU_PULL,
-    action:      CONSENT_ACTIONS.GRANTED,
-    ipHash,
-    metadata:    { bureau: 'CIBIL', pull_type: 'SOFT' },
-  });
-
+// ── STEP 6: Bureau pull ───────────────────────────────────────
+const processBureau = async ({ userId, ipHash }) => {
   const user = await query(
-    'SELECT pan_last4, full_name, date_of_birth FROM users WHERE user_id = $1',
+    'SELECT pan_last4, pan_encrypted, full_name, date_of_birth FROM users WHERE user_id = $1',
     [userId]
   );
-  const { pan_last4, full_name, date_of_birth } = user.rows[0];
+  if (!user.rows.length) throw { statusCode: 404, message: 'User not found.' };
 
-  const bureauResult = await pullBureau(
-    pan_last4, full_name, date_of_birth,
-    userId, consent.consent_id
-  );
+  const bureauResult = await pullBureau(user.rows[0], userId);
 
-  // Save bureau result
   await query(`
     INSERT INTO bureau_results
-      (user_id, bureau_name, pull_type, consent_id, provider_ref,
-       score_band, score_value, dpd_90_plus, written_off,
-       active_loans_count, settled_loans_count, enquiries_6m,
-       recommendation, rejection_reason)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+      (user_id, provider, score, score_band, accounts_total, accounts_delinquent,
+       dpd_max, enquiries_6m, result, raw_response_hash)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    ON CONFLICT (user_id) DO UPDATE SET
+      score = $3, score_band = $4, result = $9, updated_at = NOW()
   `, [
-    userId, 'CIBIL', 'SOFT', consent.consent_id,
-    bureauResult.bureau_ref, bureauResult.score_band,
-    bureauResult.score_value, bureauResult.dpd_90_plus,
-    bureauResult.written_off, bureauResult.active_loans,
-    bureauResult.settled_loans, bureauResult.enquiries_6m,
-    bureauResult.recommendation, bureauResult.rejection_reason,
+    userId,
+    bureauResult.provider,
+    bureauResult.score,
+    bureauResult.score_band,
+    bureauResult.accounts_total,
+    bureauResult.accounts_delinquent,
+    bureauResult.dpd_max,
+    bureauResult.enquiries_6m,
+    bureauResult.result,
+    bureauResult.raw_response_hash,
   ]);
 
-  if (bureauResult.recommendation === 'REJECT') {
-    await query(`
-      UPDATE users SET account_status = 'REJECTED', updated_at = NOW()
-      WHERE user_id = $1
-    `, [userId]);
-
-    throw {
-      statusCode: 400,
-      message: `We cannot offer credit at this time. Reason: ${bureauResult.rejection_reason}. Bureau checked: CIBIL.`,
-      rejection_reason: bureauResult.rejection_reason,
-    };
+  if (bureauResult.result === 'REJECT') {
+    await query(`UPDATE users SET kyc_status = 'REJECTED', updated_at = NOW() WHERE user_id = $1`, [userId]);
+    throw { statusCode: 400, message: 'We are unable to approve your application at this time.', rejection_reason: 'BUREAU_REJECT' };
   }
 
-  // All clear — mark KYC complete!
-  await query(`
-    UPDATE kyc_records SET status = 'COMPLETE', completed_at = NOW() WHERE user_id = $1
-  `, [userId]);
-
+  // Mark KYC complete
   await query(`
     UPDATE users SET
-      kyc_status      = 'VERIFIED',
-      kyc_type        = 'AADHAAR_OTP',
+      kyc_status       = 'VERIFIED',
+      kyc_type         = 'AADHAAR_OTP',
       kyc_completed_at = NOW(),
-      account_status  = 'KYC_DONE',
-      onboarding_step = 'PORTFOLIO_LINK',
-      updated_at      = NOW()
+      onboarding_step  = 'PORTFOLIO',
+      updated_at       = NOW()
     WHERE user_id = $1
   `, [userId]);
 
-  audit('KYC_COMPLETE', userId, {
-    kyc_type:     'AADHAAR_OTP',
-    bureau_band:  bureauResult.score_band,
-  });
-
   return {
-    kyc_complete:  true,
-    score_band:    bureauResult.score_band,
-    next_step:     'PORTFOLIO_LINK',
-    message:       'KYC verified successfully. Proceed to link your mutual fund portfolio.',
+    bureau_score:  bureauResult.score,
+    bureau_result: bureauResult.result,
+    message:       'Proceed to link your mutual fund portfolio.',
   };
 };
 

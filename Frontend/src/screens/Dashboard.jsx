@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
+import NotifBell from '../components/NotifBell'
 
 const fmt = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const fmtL = (n) => { const v = parseFloat(n||0); return v >= 100000 ? `${(v/100000).toFixed(2)}L` : fmt(v) }
@@ -34,7 +35,6 @@ export default function Dashboard({ onPay }) {
 
   useEffect(() => {
     const load = async () => {
-      // Each call independent — one failure doesn't block others
       try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
       try { const r = await getLTVHealth(); setLTVHealth(r.data) } catch(e) {}
       try {
@@ -44,20 +44,20 @@ export default function Dashboard({ onPay }) {
       setLoading(false)
     }
     load()
-  }, [activeTab]) // re-fetch when user switches back to Home tab
+  }, [activeTab])
 
-  const account = creditAccount
-  const available = parseFloat(account?.available_credit || 0)
+  const account     = creditAccount
+  const available   = parseFloat(account?.available_credit || 0)
   const creditLimit = parseFloat(account?.credit_limit || 0)
   const outstanding = parseFloat(account?.outstanding || 0)
-  const ltv = ltvHealth
-  const ltvRatio = ltv?.ltv_ratio || 0
-  const ltvColor = ltv?.status === 'RED' ? 'var(--red)' : ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
+  const ltv         = ltvHealth
+  const ltvRatio    = ltv?.ltv_ratio || 0
+  const ltvColor    = ltv?.status === 'RED' ? 'var(--red)' : ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
 
   // Scroll-driven transforms
-  const ringScale = Math.max(0.88, 1 - scrollY / 500)
+  const ringScale   = Math.max(0.88, 1 - scrollY / 500)
   const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
-  const headerY = Math.min(0, -scrollY * 0.12)
+  const headerY     = Math.min(0, -scrollY * 0.12)
 
   if (loading) return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-void)' }}>
@@ -76,22 +76,25 @@ export default function Dashboard({ onPay }) {
       </div>
 
       <div style={{ position: 'relative', zIndex: 1, padding: '0 22px' }}>
-        {/* Header — parallax shift */}
+
+        {/* ── Header ── */}
         <div style={{ paddingTop: 20, paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', transform: `translateY(${headerY}px)` }}>
           <div>
             <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>LIENPAY</p>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
+          {/* ── NOTIFICATION BELL — wired with ltvStatus for badge colour ── */}
           <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+            <NotifBell ltvStatus={ltv?.status} />
           </div>
         </div>
 
-        {/* Credit Ring — scales on scroll */}
+        {/* ── Credit Ring ── */}
         <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 8, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
           <CreditRing limit={creditLimit} available={available} />
         </div>
 
-        {/* CLOU badge */}
+        {/* ── CLOU badge ── */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)' }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--jade)', animation: 'breathe 3s ease-in-out infinite' }} />
@@ -100,13 +103,13 @@ export default function Dashboard({ onPay }) {
           <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Closed credit line · Only inside LienPay</p>
         </div>
 
-        {/* Stats — visible on load, staggered */}
+        {/* ── Stats ── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
             {[
               { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-              { l: 'LTV RATIO', v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR', v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
+              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
+              { l: 'APR',         v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
                 <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 6 }}>{s.l}</p>
@@ -116,28 +119,28 @@ export default function Dashboard({ onPay }) {
           </div>
         </motion.div>
 
-        {/* LTV health bar */}
+        {/* ── LTV alert banner (only when amber/red) ── */}
         <AnimatePresence>
           {ltv && ltv.status !== 'GREEN' && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2 }}
-              style={{ background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
+              style={{
+                background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
                 border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
-                borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
+                borderRadius: 16, padding: '14px 16px', marginBottom: 20,
+              }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
                 {ltv.status === 'RED' ? '⚠️ Margin Call — Action Required' : '⚡ Portfolio Alert'}
               </p>
               <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>{ltv.message}</p>
               <div style={{ display: 'flex', gap: 8 }}>
-                <motion.button whileTap={{ scale: 0.96 }}
-                  onClick={() => setActiveTab('billing')}
+                <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('billing')}
                   style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)' }}>
+                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)', border: 'none', cursor: 'pointer' }}>
                   Repay Now
                 </motion.button>
-                <motion.button whileTap={{ scale: 0.96 }}
-                  onClick={() => setActiveTab('portfolio')}
+                <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('portfolio')}
                   style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}>
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)', cursor: 'pointer' }}>
                   Add Collateral
                 </motion.button>
               </div>
@@ -145,7 +148,7 @@ export default function Dashboard({ onPay }) {
           )}
         </AnimatePresence>
 
-        {/* Pay CTA — visible on load */}
+        {/* ── Pay CTA ── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }}>
           <motion.button
             whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
@@ -155,10 +158,13 @@ export default function Dashboard({ onPay }) {
               width: '100%', height: 62, borderRadius: 16, position: 'relative', overflow: 'hidden',
               background: 'linear-gradient(135deg, var(--jade) 0%, #00A878 60%, #007A58 100%)',
               color: 'var(--bg-void)', fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px',
-              boxShadow: '0 12px 40px rgba(0,212,161,0.2)', marginBottom: 28,
+              boxShadow: '0 12px 40px rgba(0,212,161,0.2)', marginBottom: 28, border: 'none', cursor: 'pointer',
             }}>
-            <motion.div animate={{ x: ['-120%', '220%'] }} transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.5, ease: 'linear' }}
-              style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)', transform: 'skewX(-20deg)' }} />
+            <motion.div
+              animate={{ x: ['-120%', '220%'] }}
+              transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.5, ease: 'linear' }}
+              style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)', transform: 'skewX(-20deg)' }}
+            />
             <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
               Scan & Pay
@@ -166,7 +172,7 @@ export default function Dashboard({ onPay }) {
           </motion.button>
         </motion.div>
 
-        {/* 30-day explainer — visible on load */}
+        {/* ── 30-day interest explainer ── */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5 }}>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -181,11 +187,13 @@ export default function Dashboard({ onPay }) {
           </div>
         </motion.div>
 
-        {/* Transactions */}
+        {/* ── Transactions ── */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
             <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>{showAllTxns ? 'All Transactions' : 'Recent'}</h2>
-            <button onClick={handleViewAll} style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{showAllTxns ? 'Show less' : 'View all'}</button>
+            <button onClick={handleViewAll} style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)', background: 'none', border: 'none', cursor: 'pointer' }}>
+              {showAllTxns ? 'Show less' : 'View all'}
+            </button>
           </div>
 
           {transactions.length === 0 ? (
@@ -218,7 +226,7 @@ export default function Dashboard({ onPay }) {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <p style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>−₹{fmt(txn.amount)}</p>
-                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', letterSpacing: '0.5px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
+                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.5px' }}>
                         {txn.status}
                       </p>
                     </div>
@@ -229,22 +237,7 @@ export default function Dashboard({ onPay }) {
           )}
         </div>
 
-        {/* Portfolio health peek — always visible */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.5 }}>
-          <div style={{ background: 'linear-gradient(135deg, rgba(0,212,161,0.08), rgba(0,212,161,0.03))', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '18px', marginBottom: 24 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 6, height: 6, borderRadius: '50%', background: ltvColor }} />
-                <span style={{ fontSize: 10, color: ltvColor, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ltv?.status || 'GREEN'}</span>
-              </div>
-            </div>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 400 }}>
-              ₹{fmtL(ltv?.current_pledge_value || 0)}
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Pledged portfolio value</p>
-          </div>
-        </motion.div>
+        <div style={{ height: 32 }} />
       </div>
     </div>
   )
