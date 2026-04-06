@@ -1,283 +1,538 @@
-import { useEffect, useState, useRef } from 'react'
-
-// ── Scroll-reveal wrapper ─────────────────────────────────────
-// Uses IntersectionObserver (native browser API — no framer dep).
-// The .screen div fills the viewport (position:absolute; inset:0)
-// so the browser viewport == the scroll container here.
-// Items start invisible and animate in when they enter the viewport.
-function FadeInCard({ children, delay = 0 }) {
-  const ref = useRef(null)
-  const [visible, setVisible] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el) return
-    const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) setVisible(true) },
-      { threshold: 0.05, rootMargin: '0px 0px -20px 0px' }
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [])
-  return (
-    <div ref={ref} style={{
-      opacity: visible ? 1 : 0,
-      transform: visible ? 'translateY(0)' : 'translateY(18px)',
-      transition: `opacity 0.4s ease ${delay}s, transform 0.4s ease ${delay}s`,
-    }}>
-      {children}
-    </div>
-  )
-}
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
+import toast from 'react-hot-toast'
+import { getCreditStatus, getTxnHistory, decodeQR, initiatePayment, mockSettle } from '../api/client'
 import useStore from '../store/useStore'
-import { CreditRing, LiquidBlob, useScrollY } from '../components/LiquidUI'
+import { useRiskState } from '../contexts/RiskStateContext'
+import { MarketTicker, RiskNudgeBanner, RiskSimulationPanel } from '../components/RiskComponents'
 import NotifBell from '../components/NotifBell'
 
-const fmt = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
-const fmtL = (n) => { const v = parseFloat(n||0); return v >= 100000 ? `${(v/100000).toFixed(2)}L` : fmt(v) }
+const fmt    = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
+const fmtL   = (n) => {
+  const v = parseFloat(n || 0)
+  return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}`
+}
+const fmtPct = (n) => `${parseFloat(n || 0).toFixed(1)}%`
 
-const getGreeting = () => {
+function greeting() {
   const h = new Date().getHours()
-  if (h >= 5 && h < 12) return 'Good morning'
-  if (h >= 12 && h < 17) return 'Good afternoon'
-  if (h >= 17 && h < 21) return 'Good evening'
+  if (h < 5)  return 'Good night'
+  if (h < 12) return 'Good morning'
+  if (h < 17) return 'Good afternoon'
+  if (h < 21) return 'Good evening'
   return 'Good night'
 }
 
-export default function Dashboard({ onPay }) {
-  const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth,
-          setTransactions, transactions, activeTab, setActiveTab } = useStore()
-  const [loading, setLoading] = useState(!creditAccount)
-  const scrollRef = useRef(null)
-  const scrollY = useScrollY(scrollRef)
-  const [showAllTxns, setShowAllTxns] = useState(false)
+// ── CREDIT RING SVG ────────────────────────────────────────────
+function CreditRing({ available, total, riskState }) {
+  const R = 80
+  const SW = 8
+  const SIZE = (R + SW) * 2
+  const CIRC = 2 * Math.PI * R
+  const pct  = total > 0 ? available / total : 1
+  const offset = CIRC * (1 - pct)
 
-  const handleViewAll = async () => {
-    if (showAllTxns) { setShowAllTxns(false); return }
-    try {
-      const r = await getTxnHistory({ limit: 100 })
-      setTransactions(r.data?.transactions || [])
-    } catch(e) {}
-    setShowAllTxns(true)
+  const stateColors = {
+    healthy:  ['#22C55E', '#16A34A'],
+    watch:    ['#F59E0B', '#D97706'],
+    action:   ['#F97316', '#EA580C'],
+    critical: ['#EF4444', '#DC2626'],
   }
-
-  useEffect(() => {
-    const load = async () => {
-      try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
-      try { const r = await getLTVHealth(); setLTVHealth(r.data) } catch(e) {}
-      try {
-        const r = await getTxnHistory({ limit: 10 })
-        setTransactions(r.data?.transactions || [])
-      } catch(e) {}
-      setLoading(false)
-    }
-    load()
-  }, [activeTab])
-
-  const account     = creditAccount
-  const available   = parseFloat(account?.available_credit || 0)
-  const creditLimit = parseFloat(account?.credit_limit || 0)
-  const outstanding = parseFloat(account?.outstanding || 0)
-  const ltv         = ltvHealth
-  const ltvRatio    = ltv?.ltv_ratio || 0
-  const ltvColor    = ltv?.status === 'RED' ? 'var(--red)' : ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
-
-  const ringScale   = Math.max(0.88, 1 - scrollY / 500)
-  const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
-  const headerY     = Math.min(0, -scrollY * 0.12)
-
-  if (loading) return (
-    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-void)' }}>
-      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
-        style={{ width: 36, height: 36, border: '2px solid var(--bg-elevated)', borderTopColor: 'var(--jade)', borderRadius: '50%' }} />
-    </div>
-  )
+  const [c1, c2] = stateColors[riskState] || stateColors.healthy
 
   return (
-    <div ref={scrollRef} className="screen">
-      {/* Liquid blobs — parallax */}
-      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
-        <LiquidBlob size={320} color="var(--jade)" top={`${-100 - scrollY * 0.2}px`} right="-80px" />
-        <LiquidBlob size={200} color="var(--jade)" top={`${400 - scrollY * 0.1}px`} left="-60px" delay={3} />
-        <LiquidBlob size={160} color="#4DA8FF" top={`${700 - scrollY * 0.15}px`} right="-30px" delay={5} />
+    <div className="credit-ring-wrapper" style={{ width: SIZE, height: SIZE }}>
+      {/* Rotating halo */}
+      <div
+        className="ring-halo"
+        style={{
+          width: SIZE + 24, height: SIZE + 24,
+          marginLeft: -12, marginTop: -12,
+          background: `conic-gradient(${c1}15 0deg, transparent 180deg, ${c1}08 360deg)`,
+        }}
+      />
+
+      <svg width={SIZE} height={SIZE} style={{ position: 'relative', zIndex: 2 }}>
+        <defs>
+          <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={c1} />
+            <stop offset="100%" stopColor={c2} />
+          </linearGradient>
+        </defs>
+
+        {/* Track */}
+        <circle
+          cx={SIZE/2} cy={SIZE/2} r={R}
+          fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={SW}
+        />
+
+        {/* Fill */}
+        <motion.circle
+          cx={SIZE/2} cy={SIZE/2} r={R}
+          fill="none"
+          stroke="url(#ringGrad)"
+          strokeWidth={SW}
+          strokeLinecap="round"
+          strokeDasharray={CIRC}
+          animate={{ strokeDashoffset: offset }}
+          initial={{ strokeDashoffset: CIRC }}
+          transition={{ duration: 1, ease: 'easeOut' }}
+          style={{ transform: `rotate(-90deg)`, transformOrigin: `${SIZE/2}px ${SIZE/2}px` }}
+        />
+      </svg>
+
+      {/* Center text */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', zIndex: 3,
+      }}>
+        <p style={{
+          fontFamily:    'var(--font-mono)',
+          fontSize:      9,
+          letterSpacing: '2px',
+          color:         'var(--text-muted)',
+          marginBottom:  4,
+        }}>AVAILABLE</p>
+        <p style={{
+          fontFamily: 'var(--font-display)',
+          fontSize:   28,
+          fontWeight: 800,
+          color:      'var(--text-primary)',
+          letterSpacing: '-0.02em',
+          lineHeight: 1,
+        }}>
+          {fmtL(available)}
+        </p>
+        <p style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize:   11,
+          color:      'var(--text-secondary)',
+          marginTop:  4,
+        }}>
+          of {fmtL(total)}
+        </p>
       </div>
+    </div>
+  )
+}
 
-      {/*
-        ── NOTIFICATION BELL ──────────────────────────────────────────────
-        Rendered here at the ROOT of the component, NOT inside the parallax
-        header div that has transform: translateY() on it.
+// ── MAIN DASHBOARD ─────────────────────────────────────────────
+export default function Dashboard() {
+  const { user } = useStore()
+  const {
+    riskState, upiActive,
+    outstanding, availableLimit, totalLimit, ltvRatio,
+    apr, aprProduct, refreshAccount, spendFromLimit,
+  } = useRiskState()
 
-        CSS rule: position:fixed breaks inside any ancestor with a CSS
-        transform applied. The bell's backdrop + bottom sheet are fixed —
-        so they must live outside any transformed parent.
+  const [txns, setTxns]         = useState([])
+  const [scanning, setScanning] = useState(false)
+  const [qrResult, setQrResult] = useState(null)
+  const [paying, setPaying]     = useState(false)
+  const [txnSuccess, setTxnSuccess] = useState(null)
+  const videoRef = useRef(null)
 
-        The bell button itself is absolutely positioned top-right.
-        ───────────────────────────────────────────────────────────────── */}
-      <div style={{ position: 'absolute', top: 28, right: 22, zIndex: 20 }}>
-        <NotifBell ltvStatus={ltv?.status} />
-      </div>
+  useEffect(() => {
+    getTxnHistory({ limit: 5 })
+      .then(res => setTxns(res?.data?.transactions || res?.transactions || []))
+      .catch(() => {})
+  }, [])
 
-      <div style={{ position: 'relative', zIndex: 1, padding: '0 22px' }}>
+  // Determine active APR display
+  const aprDisplay = aprProduct === 'INTEREST_ONLY'
+    ? '18% p.a. interest-only'
+    : `0% (first 30d) → ${apr}% p.a.`
 
-        {/* Header — parallax shift. No transform children with fixed descendants. */}
-        <div style={{ paddingTop: 20, paddingBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', transform: `translateY(${headerY}px)` }}>
+  // Stat cards
+  const stats = [
+    {
+      label: 'OUTSTANDING',
+      value: `₹${fmt(outstanding)}`,
+      color: outstanding > 0 ? 'var(--amber)' : 'var(--jade)',
+      bg:    outstanding > 0 ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.05)',
+    },
+    {
+      label: 'LTV RATIO',
+      value: fmtPct(ltvRatio),
+      color: riskState === 'healthy' ? 'var(--jade)' : riskState === 'watch' ? 'var(--amber)' : 'var(--red)',
+      bg:    'rgba(34,197,94,0.05)',
+    },
+    {
+      label: 'APR',
+      value: `${apr}%`,
+      color: 'var(--text-secondary)',
+      bg:    'var(--bg-elevated)',
+    },
+  ]
+
+  return (
+    <div className="screen">
+      <MarketTicker />
+
+      <div className="page-pad" style={{ paddingTop: 20 }}>
+
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 }}
+        >
           <div>
-            <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>LIENPAY</p>
-            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              letterSpacing: '5px', color: 'rgba(34,197,94,0.6)',
+              fontWeight: 700, marginBottom: 4,
+            }}>LIENPAY</p>
+            <h1 style={{
+              fontFamily: 'var(--font-display)',
+              fontSize: 30, fontWeight: 700,
+              letterSpacing: '-0.02em',
+            }}>
+              {greeting()}
+            </h1>
           </div>
-          {/* Empty right side — bell is absolutely positioned above */}
-          <div style={{ width: 38 }} />
-        </div>
+          <NotifBell />
+        </motion.div>
 
         {/* Credit Ring */}
-        <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 8, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
-          <CreditRing limit={creditLimit} available={available} />
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}
+        >
+          <CreditRing
+            available={availableLimit}
+            total={totalLimit}
+            riskState={riskState}
+          />
 
-        {/* CLOU badge */}
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 20, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)' }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--jade)', animation: 'breathe 3s ease-in-out infinite' }} />
-            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--jade)', letterSpacing: '1.5px' }}>CLOU ACTIVE</span>
-          </div>
-          <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6 }}>Closed credit line · Only inside LienPay</p>
-        </div>
-
-        {/* Stats */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
-            {[
-              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR',         v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
-            ].map((s, i) => (
-              <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
-                <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 6 }}>{s.l}</p>
-                <p style={{ fontSize: 16, fontWeight: 600, color: s.c, fontFamily: 'var(--font-mono)' }}>{s.v}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* LTV alert — amber/red only */}
-        <AnimatePresence>
-          {ltv && ltv.status !== 'GREEN' && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2 }}
-              style={{
-                background: ltv.status === 'RED' ? 'var(--red-dim)' : 'var(--amber-dim)',
-                border: `1px solid ${ltv.status === 'RED' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`,
-                borderRadius: 16, padding: '14px 16px', marginBottom: 20,
-              }}>
-              <p style={{ fontSize: 13, fontWeight: 700, color: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', marginBottom: 4 }}>
-                {ltv.status === 'RED' ? '⚠️ Margin Call — Action Required' : '⚡ Portfolio Alert'}
-              </p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 12 }}>{ltv.message}</p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('billing')}
-                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer',
-                    background: ltv.status === 'RED' ? 'var(--red)' : 'var(--amber)', color: 'var(--bg-void)' }}>
-                  Repay Now
-                </motion.button>
-                <motion.button whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('portfolio')}
-                  style={{ flex: 1, height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-sans)', cursor: 'pointer',
-                    background: 'var(--bg-elevated)', border: '1px solid var(--border-light)', color: 'var(--text-primary)' }}>
-                  Add Collateral
-                </motion.button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Pay CTA */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }}>
-          <motion.button
-            whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
-            whileTap={{ scale: 0.96 }}
-            onClick={onPay}
+          {/* Status pill */}
+          <motion.div
             style={{
-              width: '100%', height: 62, borderRadius: 16, position: 'relative', overflow: 'hidden',
-              background: 'linear-gradient(135deg, var(--jade) 0%, #00A878 60%, #007A58 100%)',
-              color: 'var(--bg-void)', fontSize: 16, fontWeight: 700, letterSpacing: '-0.3px',
-              boxShadow: '0 12px 40px rgba(0,212,161,0.2)', marginBottom: 28, border: 'none', cursor: 'pointer',
-            }}>
-            <motion.div
-              animate={{ x: ['-120%', '220%'] }}
-              transition={{ duration: 2.5, repeat: Infinity, repeatDelay: 1.5, ease: 'linear' }}
-              style={{ position: 'absolute', inset: 0, background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent)', transform: 'skewX(-20deg)' }}
-            />
-            <span style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
-              Scan & Pay
-            </span>
-          </motion.button>
+              marginTop: 12,
+              display: 'flex', alignItems: 'center', gap: 6,
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--jade-border)',
+              borderRadius: 20, padding: '5px 12px',
+            }}
+          >
+            <div style={{
+              width: 6, height: 6, borderRadius: '50%',
+              background: 'var(--jade)',
+              boxShadow: '0 0 6px var(--jade-glow)',
+            }} />
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              fontWeight: 700, letterSpacing: '1.5px',
+              color: 'var(--jade)',
+            }}>CLOU ACTIVE</span>
+          </motion.div>
+
+          <p style={{
+            fontSize: 11, color: 'var(--text-muted)', marginTop: 4,
+          }}>
+            {aprProduct === 'INTEREST_ONLY' ? 'Interest-only revolving credit' : 'Closed credit line · Only inside LienPay'}
+          </p>
         </motion.div>
 
-        {/* 30-day explainer */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5 }}>
-          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '16px 18px', marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-              <div style={{ width: 24, height: 24, borderRadius: 8, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 700 }}>0%</span>
-              </div>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>30 days interest-free on every payment</span>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-              After that, just {((parseFloat(account?.apr || 12)) / 12).toFixed(2)}%/month. Credit cards charge 3%+.
+        {/* Stats row */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {stats.map((s, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 + i * 0.05 }}
+              style={{
+                flex: 1, background: s.bg,
+                border: '1px solid var(--border)',
+                borderRadius: 14, padding: '10px 10px',
+              }}
+            >
+              <p style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8,
+                letterSpacing: '2px', color: 'var(--text-muted)',
+                marginBottom: 4,
+              }}>{s.label}</p>
+              <p style={{
+                fontFamily: 'var(--font-mono)', fontSize: 15,
+                fontWeight: 800, color: s.color,
+              }}>{s.value}</p>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Risk Nudge */}
+        <div style={{ marginBottom: 16 }}>
+          <RiskNudgeBanner page="home" variant="strip" />
+        </div>
+
+        {/* Scan & Pay */}
+        <motion.button
+          className="btn-primary"
+          whileTap={{ scale: upiActive ? 0.97 : 1 }}
+          disabled={!upiActive || paying}
+          onClick={() => upiActive && setScanning(true)}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: 10, marginBottom: 10,
+            opacity: riskState === 'action' ? 0.8 : 1,
+            cursor: upiActive ? 'pointer' : 'not-allowed',
+            background: upiActive
+              ? 'linear-gradient(135deg, var(--jade), #16A34A)'
+              : 'var(--bg-elevated)',
+            color: upiActive ? '#000' : 'var(--text-muted)',
+          }}
+        >
+          <span style={{ fontSize: 20 }}>⊞</span>
+          <span style={{ fontSize: 16, fontWeight: 800, letterSpacing: '-0.01em' }}>
+            Scan & Pay
+          </span>
+        </motion.button>
+
+        {!upiActive && (
+          <p style={{
+            textAlign: 'center', fontSize: 11,
+            color: riskState === 'critical' ? 'var(--red)' : 'var(--amber)',
+            marginBottom: 10,
+          }}>
+            {riskState === 'critical'
+              ? '⚠ UPI paused — repay or add collateral to resume'
+              : '⚠ UPI paused at 80% LTV — portfolio safety buffer reached'}
+          </p>
+        )}
+
+        {/* Interest banner */}
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            background: 'var(--jade-dim)',
+            border: '1px solid var(--jade-border)',
+            borderRadius: 14, padding: '12px 14px', marginBottom: 20,
+          }}
+        >
+          <div style={{
+            width: 32, height: 32, borderRadius: 8,
+            background: 'var(--jade)', color: '#000',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 800, flexShrink: 0,
+          }}>0%</div>
+          <div>
+            <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+              {aprProduct === 'INTEREST_ONLY'
+                ? 'Interest-only mode — Pay whenever you want'
+                : '30 days interest-free on every payment'}
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+              {aprProduct === 'INTEREST_ONLY'
+                ? `${apr}% p.a. — pay just the interest monthly, principal anytime`
+                : `Then just ${apr/12}%/mo. Credit cards charge 3%+.`}
             </p>
           </div>
         </motion.div>
 
-        {/* Transactions */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px' }}>{showAllTxns ? 'All Transactions' : 'Recent'}</h2>
-            <button onClick={handleViewAll} style={{ fontSize: 10, color: 'var(--jade)', fontWeight: 600, fontFamily: 'var(--font-mono)', background: 'none', border: 'none', cursor: 'pointer' }}>
-              {showAllTxns ? 'Show less' : 'View all'}
-            </button>
-          </div>
+        {/* Recent Transactions */}
+        {txns.length > 0 && (
+          <div style={{ marginBottom: 20 }}>
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 9,
+              letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 10,
+            }}>RECENT TRANSACTIONS</p>
 
-          {transactions.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-              style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 20, padding: '36px 20px', textAlign: 'center' }}>
-              <p style={{ fontSize: 40, marginBottom: 10 }}>💳</p>
-              <p style={{ color: 'var(--text-secondary)', fontSize: 14, fontWeight: 600 }}>No payments yet</p>
-              <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4 }}>Scan any UPI QR to pay</p>
-            </motion.div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {(showAllTxns ? transactions : transactions.slice(0, 5)).map((txn, i) => (
-                <FadeInCard key={txn.txn_id} delay={i * 0.06}>
-                <div
-                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <div style={{ width: 42, height: 42, borderRadius: 14, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-                      🏪
-                    </div>
-                    <div>
-                      <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 2 }}>{txn.merchant_name || txn.merchant_vpa}</p>
-                      <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                        {new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6, fontWeight: 700 }}>· Free</span>}
-                      </p>
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                    <p style={{ fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>−₹{fmt(txn.amount)}</p>
-                    <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.5px' }}>
-                      {txn.status}
-                    </p>
-                  </div>
+            {txns.slice(0, 5).map((t, i) => (
+              <motion.div
+                key={t.transaction_id || i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.06 }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 0',
+                  borderBottom: i < 4 ? '1px solid var(--border)' : 'none',
+                }}
+              >
+                <div style={{
+                  width: 38, height: 38, borderRadius: 10, flexShrink: 0,
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-light)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 800,
+                  color: 'var(--jade)',
+                }}>
+                  {(t.merchant_name || 'M').charAt(0).toUpperCase()}
                 </div>
-                </FadeInCard>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div style={{ height: 96 }} />
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600 }}>{t.merchant_name || 'Payment'}</p>
+                  <p style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 9,
+                    color: 'var(--text-muted)', letterSpacing: '1px',
+                  }}>
+                    {t.status === 'SETTLED' ? '● SETTLED' : t.status}
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <p style={{
+                    fontFamily: 'var(--font-mono)', fontSize: 14,
+                    fontWeight: 800, color: 'var(--text-primary)',
+                  }}>
+                    ₹{fmt(t.amount)}
+                  </p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* Scanner overlay */}
+      <AnimatePresence>
+        {scanning && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 80,
+              background: 'rgba(9,9,15,0.97)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <button
+              onClick={() => setScanning(false)}
+              style={{
+                position: 'absolute', top: 16, right: 16,
+                color: 'var(--text-secondary)', fontSize: 24,
+              }}
+            >×</button>
+
+            {/* Mock QR frame */}
+            <div style={{
+              width: 240, height: 240,
+              border: '2px solid var(--jade)',
+              borderRadius: 20, position: 'relative',
+              marginBottom: 32,
+              boxShadow: '0 0 30px var(--jade-glow)',
+            }}>
+              {/* Corner brackets */}
+              {[[0,0],[0,1],[1,0],[1,1]].map(([r,c], i) => (
+                <div key={i} style={{
+                  position: 'absolute',
+                  top:    r ? 'auto' : 0,   bottom: r ? 0 : 'auto',
+                  left:   c ? 'auto' : 0,   right:  c ? 0 : 'auto',
+                  width: 24, height: 24,
+                  borderTop:    r ? 'none' : '3px solid var(--jade)',
+                  borderBottom: r ? '3px solid var(--jade)' : 'none',
+                  borderLeft:   c ? 'none' : '3px solid var(--jade)',
+                  borderRight:  c ? '3px solid var(--jade)' : 'none',
+                  borderRadius: `${r?0:6}px ${r?0:c?6:0}px ${r?6:0}px ${r?c?0:6:0}px`,
+                }} />
+              ))}
+
+              {/* Scan line */}
+              <motion.div
+                animate={{ top: ['10%', '90%', '10%'] }}
+                transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+                style={{
+                  position: 'absolute', left: 0, right: 0, height: 2,
+                  background: 'linear-gradient(90deg, transparent, var(--jade), transparent)',
+                  boxShadow: '0 0 8px var(--jade-glow)',
+                }}
+              />
+            </div>
+
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 11,
+              color: 'var(--text-muted)', letterSpacing: '2px',
+              marginBottom: 24,
+            }}>
+              POINT AT ANY UPI QR CODE
+            </p>
+
+            {/* Simulate payment for development */}
+            <button
+              className="btn-primary"
+              style={{ width: 'auto', padding: '0 32px', height: 48 }}
+              onClick={async () => {
+                setScanning(false)
+                setPaying(true)
+                try {
+                  const txnRes = await initiatePayment({
+                    merchant_vpa:  'merchant@upi',
+                    merchant_name: 'Test Merchant',
+                    amount:        500,
+                    qr_string:     'upi://pay?pa=merchant@upi&am=500',
+                  })
+                  await mockSettle(txnRes.data?.transaction_id)
+                  spendFromLimit(500)
+                  setTxnSuccess({ amount: 500, merchant: 'Test Merchant', utr: `UTR${Date.now()}` })
+                } catch (err) {
+                  toast.error(err.message)
+                } finally {
+                  setPaying(false)
+                }
+              }}
+            >
+              Simulate ₹500 Payment
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Success overlay */}
+      <AnimatePresence>
+        {txnSuccess && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 90,
+              background: 'rgba(9,9,15,0.97)',
+              display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center',
+            }}
+          >
+            <div style={{
+              width: 72, height: 72, borderRadius: '50%',
+              background: 'linear-gradient(135deg, var(--jade), #16A34A)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 32, marginBottom: 16,
+              boxShadow: '0 0 30px var(--jade-glow)',
+            }}>✓</div>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 800, marginBottom: 4 }}>
+              Payment Sent
+            </p>
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 28,
+              fontWeight: 800, color: 'var(--jade)', marginBottom: 16,
+            }}>
+              ₹{fmt(txnSuccess.amount)}
+            </p>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {txnSuccess.merchant}
+            </p>
+            <p style={{
+              fontFamily: 'var(--font-mono)', fontSize: 10,
+              color: 'var(--text-muted)', marginBottom: 32,
+            }}>
+              {txnSuccess.utr}
+            </p>
+            <button
+              className="btn-primary"
+              style={{ width: 'auto', padding: '0 48px', height: 48 }}
+              onClick={() => { setTxnSuccess(null); refreshAccount() }}
+            >
+              Done
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <RiskSimulationPanel />
     </div>
   )
 }

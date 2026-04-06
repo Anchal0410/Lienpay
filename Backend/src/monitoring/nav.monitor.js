@@ -1,82 +1,73 @@
 const { query }         = require('../../config/database');
-const { fetchAMFINavs } = require('../portfolio/nav.service');
+const { fetchNAVsByISIN } = require('../portfolio/mf_central.service');
 const { checkLTVHealth } = require('../risk/risk.engine');
 const { logger, audit } = require('../../config/logger');
+const { runNotoriousFundCheck } = require('../portfolio/notorious.service');
 
 // ─────────────────────────────────────────────────────────────
-// NAV MONITORING SERVICE  (LienPay / LSP Role)
+// NAV MONITORING SERVICE  (LienPay LSP — Data Layer Only)
 //
-// RBI Digital Lending Directions 2025 — LSP Responsibilities:
+// RBI Digital Lending Directions 2025:
 //
-//   ✅ LienPay CAN:
-//      - Fetch NAVs and calculate LTV (data collection is our job)
-//      - Update portfolio values in our DB
-//      - Send IN-APP notifications to user (our app, our notifications)
-//      - Fire webhooks to NBFC with LTV breach data
-//      - Store margin call records created by NBFC
+//  ✅ LienPay CAN:
+//    - Fetch NAVs from MF Central / AMFI (data collection is our job)
+//    - Recalculate LTV for all accounts
+//    - Send IN-APP notifications (we own the app)
+//    - Fire webhooks to NBFC with LTV breach data
+//    - Freeze UPI at 80% LTV (this is OUR product feature — not a credit decision)
+//    - Flag notorious funds and freeze UPI for affected users
 //
-//   ❌ LienPay CANNOT:
-//      - Send SMS to users (pledge is in NBFC's name — SMS must come from NBFC)
-//      - Issue margin calls unilaterally (NBFC is the RE, they decide)
-//      - Invoke/redeem units without NBFC's explicit authorization
-//      - Make any credit decisions (only the NBFC / RE can do this)
+//  ❌ LienPay CANNOT:
+//    - Send SMS (pledge is in NBFC's name — SMS must come from NBFC)
+//    - Issue margin calls (NBFC's credit decision)
+//    - Invoke/redeem pledge units (NBFC authorizes, LienPay only executes with auth ref)
+//    - Make credit decisions (only NBFC can)
 //
-// FLOW:
-//   LienPay cron → calculate LTV → webhook to NBFC → NBFC decides →
-//   NBFC calls POST /api/nbfc/margin-call/issue or /pledge/invoke →
-//   LienPay executes only with NBFC's signed authorization
+// DAILY CRON SEQUENCE (11:30pm IST):
+//   1. Fetch NAVs via MF Central / AMFI
+//   2. Update nav_history + mf_holdings
+//   3. Check all active pledges for notorious funds
+//   4. Recalculate LTV for all accounts with outstanding > 0
+//   5. If LTV ≥ 80%: freeze UPI (our product rule)
+//   6. If LTV ≥ 90%: fire RED webhook to NBFC + in-app alert
+//   7. If LTV 80-89%: fire AMBER webhook to NBFC + in-app alert + keep UPI frozen
+//   8. If LTV < 80%: unfreeze UPI (if was frozen for LTV reason, not notorious)
 // ─────────────────────────────────────────────────────────────
 
 // ── NBFC WEBHOOK DELIVERY ─────────────────────────────────────
-/**
- * Fire a webhook to the NBFC's endpoint.
- * The NBFC registers their URL via POST /api/nbfc/webhook/register
- * or via the NBFC_WEBHOOK_URL env variable.
- *
- * The NBFC's system receives this and:
- *   - Sends SMS to the user
- *   - Makes the margin call decision
- *   - Updates their own loan management system
- */
 const fireNBFCWebhook = async (event, payload) => {
   const webhookUrl = process.env.NBFC_WEBHOOK_URL;
   if (!webhookUrl) {
-    logger.warn('NBFC_WEBHOOK_URL not configured — LTV event logged but not dispatched', { event });
-    return { dispatched: false, reason: 'NBFC_WEBHOOK_URL not set' };
+    logger.warn('NBFC_WEBHOOK_URL not configured — event logged but not dispatched', { event });
+    return { dispatched: false };
   }
 
   try {
     const body = {
       event,
-      timestamp:     new Date().toISOString(),
-      source:        'LienPay-LSP',
-      lsp_id:        process.env.NBFC_CLIENT_ID || 'lienpay-lsp',
+      timestamp: new Date().toISOString(),
+      source:    'LienPay-LSP',
+      lsp_id:    process.env.NBFC_CLIENT_ID || 'lienpay-lsp',
       payload,
     };
 
     const controller = new AbortController();
-    const timeout    = setTimeout(() => controller.abort(), 10000); // 10s timeout
+    const timeout    = setTimeout(() => controller.abort(), 10000);
 
     const res = await fetch(webhookUrl, {
       method:  'POST',
       headers: {
-        'Content-Type':    'application/json',
-        'X-LienPay-Event': event,
+        'Content-Type':     'application/json',
+        'X-LienPay-Event':  event,
         'X-Webhook-Secret': process.env.NBFC_WEBHOOK_SECRET || '',
       },
-      body:    JSON.stringify(body),
-      signal:  controller.signal,
+      body:   JSON.stringify(body),
+      signal: controller.signal,
     });
 
     clearTimeout(timeout);
-
     const success = res.status >= 200 && res.status < 300;
-    logger.info(`Webhook ${event} ${success ? '✅ delivered' : '❌ failed'}`, {
-      status: res.status,
-      url:    webhookUrl,
-    });
 
-    // Log webhook delivery for compliance audit
     await query(`
       INSERT INTO audit_trail (event_type, entity_type, new_values, created_at)
       VALUES ('NBFC_WEBHOOK_SENT', 'system', $1, NOW())
@@ -89,25 +80,23 @@ const fireNBFCWebhook = async (event, payload) => {
   }
 };
 
-// ── IN-APP NOTIFICATION (allowed — it's LienPay's own app) ───
-/**
- * Store an in-app notification for the user.
- * This is different from SMS — we own the app interface,
- * so we can show alerts inside it. The NBFC sends SMS externally.
- */
-const createInAppAlert = async (userId, type, data) => {
+// ── IN-APP ALERT (LienPay owns the app — this is allowed) ────
+const createInAppAlert = async (userId, type, data = {}) => {
   const templates = {
     LTV_AMBER: {
-      content: `Portfolio alert: LTV at ${data.ltv_pct}%. Monitor your collateral value.`,
-      channel: 'PUSH',
+      content: `Portfolio alert: LTV at ${data.ltv_pct}%. UPI spending is paused. Repay or add collateral.`,
     },
     LTV_RED: {
       content: `Urgent: LTV at ${data.ltv_pct}%. Your lending partner has been notified and will contact you.`,
-      channel: 'PUSH',
     },
     LTV_RECOVERED: {
-      content: `LTV back to safe levels (${data.ltv_pct}%). Credit line is healthy.`,
-      channel: 'PUSH',
+      content: `LTV back to safe levels (${data.ltv_pct}%). UPI spending restored.`,
+    },
+    UPI_FROZEN_LTV: {
+      content: `UPI paused: Portfolio LTV reached 80%. Repay or pledge more to resume spending.`,
+    },
+    UPI_UNFROZEN_LTV: {
+      content: `UPI restored: Your LTV is now below 80%. You can spend again.`,
     },
   };
 
@@ -117,96 +106,135 @@ const createInAppAlert = async (userId, type, data) => {
   await query(`
     INSERT INTO notifications
       (user_id, type, channel, status, content_preview, sent_at, created_at)
-    VALUES ($1, $2, $3, 'SENT', $4, NOW(), NOW())
-  `, [userId, type, tpl.channel, tpl.content.slice(0, 100)]).catch(() => {
-    // Non-blocking — notification failure shouldn't stop monitoring
-  });
+    VALUES ($1, $2, 'PUSH', 'SENT', $3, NOW(), NOW())
+  `, [userId, type, tpl.content.slice(0, 100)]).catch(() => {});
 };
 
-// ── MAIN: RUN DAILY NAV MONITORING ───────────────────────────
+// ── MAIN: DAILY NAV MONITORING ────────────────────────────────
 const runDailyNAVMonitoring = async () => {
   const startTime = Date.now();
-  logger.info('🌙 Starting daily NAV monitoring (LSP data layer)...');
+  logger.info('🌙 Starting daily NAV monitoring (LienPay LSP)...');
 
   const results = {
-    date:             new Date().toISOString().split('T')[0],
-    accounts_checked: 0,
-    green:            0,
-    amber:            0,
-    red:              0,
-    webhooks_fired:   0,
-    inapp_sent:       0,
-    errors:           0,
+    date:              new Date().toISOString().split('T')[0],
+    accounts_checked:  0,
+    green:             0,
+    amber:             0,
+    red:               0,
+    upi_frozen:        0,
+    upi_unfrozen:      0,
+    webhooks_fired:    0,
+    inapp_sent:        0,
+    notorious_check:   null,
+    errors:            0,
   };
 
   try {
-    // 1. Fetch all NAVs from AMFI (LienPay's data job)
-    const navMap = await fetchAMFINavs();
-    logger.info(`📊 AMFI NAVs fetched: ${Object.keys(navMap).length} schemes`);
+    // STEP 1: Run notorious fund check first
+    results.notorious_check = await runNotoriousFundCheck().catch(err => {
+      logger.error('Notorious fund check failed (non-blocking):', err.message);
+      return { error: err.message };
+    });
 
-    // 2. Update NAVs for all active pledged holdings in our DB
-    await updatePledgedHoldingNAVs(navMap);
+    // STEP 2: Fetch all ISINs from active pledges
+    const activePledgeIsins = await query(`
+      SELECT DISTINCT p.isin, mh.scheme_name
+      FROM pledges p
+      JOIN mf_holdings mh ON mh.isin = p.isin AND mh.user_id = p.user_id
+      WHERE p.status = 'ACTIVE'
+    `).catch(() => ({ rows: [] }));
 
-    // 3. Get all active accounts with outstanding balance
+    // STEP 3: Fetch NAVs from MF Central
+    const isins  = activePledgeIsins.rows.map(r => r.isin);
+    const navMap = isins.length > 0
+      ? await fetchNAVsByISIN(isins).catch(() => ({}))
+      : {};
+
+    logger.info(`📊 NAVs fetched: ${Object.keys(navMap).length} schemes via MF Central`);
+
+    // STEP 4: Update nav_history and mf_holdings
+    await updatePledgedHoldingNAVs(navMap, activePledgeIsins.rows);
+
+    // STEP 5: Get all active accounts with outstanding balance
     const accounts = await query(`
       SELECT ca.account_id, ca.user_id, ca.outstanding,
              ca.credit_limit, ca.available_credit, ca.apr,
-             ca.ltv_alert_level
+             ca.ltv_alert_level, ca.upi_active,
+             ca.notorious_fund_freeze
       FROM credit_accounts ca
-      WHERE ca.status = 'ACTIVE'
-        AND ca.outstanding > 0
+      WHERE ca.status = 'ACTIVE' AND ca.outstanding > 0
     `);
 
     results.accounts_checked = accounts.rows.length;
 
-    // 4. For each account: calculate LTV, update DB, notify NBFC via webhook
+    // STEP 6: Process each account
     for (const account of accounts.rows) {
       try {
-        const health       = await checkLTVHealth(account.user_id, account.account_id);
-        const prevLevel    = account.ltv_alert_level || 'GREEN';
-        const levelChanged = health.status !== prevLevel;
+        const health     = await checkLTVHealth(account.user_id, account.account_id);
+        const prevLevel  = account.ltv_alert_level || 'GREEN';
+        const ltv        = health.ltv_ratio;
+        const ltvPct     = ltv.toFixed(1);
 
-        // Update LTV on account record (LienPay's DB — our job)
+        // Update LTV on account
         await query(`
           UPDATE credit_accounts
           SET ltv_ratio       = $2,
               ltv_alert_level = $3,
               updated_at      = NOW()
           WHERE account_id = $1
-        `, [account.account_id, health.ltv_ratio, health.status]);
+        `, [account.account_id, ltv, health.status]);
 
-        // Store snapshot for historical analysis
+        // Store snapshot
         await query(`
           INSERT INTO ltv_snapshots
             (user_id, account_id, ltv_ratio, status, outstanding, snapshot_date)
           VALUES ($1, $2, $3, $4, $5, CURRENT_DATE)
           ON CONFLICT (user_id, snapshot_date)
-          DO UPDATE SET
-            ltv_ratio   = EXCLUDED.ltv_ratio,
-            status      = EXCLUDED.status,
-            outstanding = EXCLUDED.outstanding
-        `, [
-          account.user_id,
-          account.account_id,
-          health.ltv_ratio,
-          health.status,
-          account.outstanding,
-        ]).catch(() => {});
+          DO UPDATE SET ltv_ratio = EXCLUDED.ltv_ratio,
+                        status = EXCLUDED.status,
+                        outstanding = EXCLUDED.outstanding
+        `, [account.user_id, account.account_id, ltv, health.status, account.outstanding]).catch(() => {});
 
+        // ── UPI FREEZE LOGIC (LienPay product rule, not credit decision) ──
+        // Freeze at 80% LTV — ensures fund maintains 50% of its value as buffer
+        // Notorious fund freeze is handled separately by notorious.service.js
+        const shouldFreezeForLTV = ltv >= 80 && !account.notorious_fund_freeze;
+        const shouldUnfreezeForLTV = ltv < 80 && account.upi_active === false && !account.notorious_fund_freeze;
+
+        if (shouldFreezeForLTV && account.upi_active) {
+          await query(`
+            UPDATE credit_accounts
+            SET upi_active = false, updated_at = NOW()
+            WHERE account_id = $1
+          `, [account.account_id]);
+
+          await createInAppAlert(account.user_id, 'UPI_FROZEN_LTV', { ltv_pct: ltvPct });
+          results.upi_frozen++;
+          audit('UPI_FROZEN_LTV_80', account.user_id, { account_id: account.account_id, ltv });
+        }
+
+        if (shouldUnfreezeForLTV) {
+          await query(`
+            UPDATE credit_accounts
+            SET upi_active = true, updated_at = NOW()
+            WHERE account_id = $1
+          `, [account.account_id]);
+
+          await createInAppAlert(account.user_id, 'UPI_UNFROZEN_LTV', { ltv_pct: ltvPct });
+          results.upi_unfrozen++;
+        }
+
+        // ── LTV STATE NOTIFICATIONS & WEBHOOKS ──
         switch (health.status) {
           case 'GREEN':
             results.green++;
-            // If recovering from alert — notify user in-app, tell NBFC
-            if (levelChanged && prevLevel !== 'GREEN') {
-              await createInAppAlert(account.user_id, 'LTV_RECOVERED', {
-                ltv_pct: health.ltv_ratio.toFixed(1),
-              });
+            if (prevLevel !== 'GREEN') {
+              await createInAppAlert(account.user_id, 'LTV_RECOVERED', { ltv_pct: ltvPct });
               results.inapp_sent++;
-
               await fireNBFCWebhook('ltv.recovered', {
                 user_id:    account.user_id,
                 account_id: account.account_id,
-                ltv_ratio:  health.ltv_ratio,
+                ltv_ratio:  ltv,
                 previous_status: prevLevel,
               });
               results.webhooks_fired++;
@@ -215,61 +243,52 @@ const runDailyNAVMonitoring = async () => {
 
           case 'AMBER':
             results.amber++;
-            // In-app alert (LienPay is allowed to do this)
-            await createInAppAlert(account.user_id, 'LTV_AMBER', {
-              ltv_pct: health.ltv_ratio.toFixed(1),
-            });
+            await createInAppAlert(account.user_id, 'LTV_AMBER', { ltv_pct: ltvPct });
             results.inapp_sent++;
 
-            // Webhook to NBFC — THEY decide whether to issue margin call and send SMS
             await fireNBFCWebhook('ltv.amber_alert', {
               user_id:    account.user_id,
               account_id: account.account_id,
-              ltv_ratio:  health.ltv_ratio,
-              outstanding:    parseFloat(account.outstanding),
-              shortfall:      health.shortfall || 0,
-              message:    health.message,
-              note:       'NBFC should issue margin call warning and send SMS/email per RBI guidelines',
+              ltv_ratio:  ltv,
+              outstanding: parseFloat(account.outstanding),
+              shortfall:   health.shortfall || 0,
+              upi_status: 'FROZEN',
+              note:       'UPI frozen by LienPay at 80% LTV. NBFC to decide on margin call actions.',
             });
             results.webhooks_fired++;
 
-            audit('LTV_AMBER_WEBHOOK_SENT', account.user_id, {
+            audit('LTV_AMBER_NOTIFIED', account.user_id, {
               account_id: account.account_id,
-              ltv_ratio:  health.ltv_ratio,
+              ltv_ratio:  ltv,
             });
             break;
 
           case 'RED':
             results.red++;
-            // In-app alert
-            await createInAppAlert(account.user_id, 'LTV_RED', {
-              ltv_pct: health.ltv_ratio.toFixed(1),
-            });
+            await createInAppAlert(account.user_id, 'LTV_RED', { ltv_pct: ltvPct });
             results.inapp_sent++;
 
-            // Webhook to NBFC — NBFC must:
-            //   1. Send margin call SMS/email to user
-            //   2. Call POST /api/nbfc/margin-call/issue to formally record the call
-            //   3. After 3 business days with no resolution, call POST /api/nbfc/pledge/invoke
             await fireNBFCWebhook('ltv.red_alert', {
               user_id:    account.user_id,
               account_id: account.account_id,
-              ltv_ratio:  health.ltv_ratio,
-              outstanding:    parseFloat(account.outstanding),
-              shortfall:      health.shortfall || 0,
-              message:    health.message,
+              ltv_ratio:  ltv,
+              outstanding: parseFloat(account.outstanding),
+              shortfall:   health.shortfall || 0,
+              upi_status: 'FROZEN',
               action_required: 'ISSUE_MARGIN_CALL',
+              has_notorious_funds: health.has_notorious_funds,
               instructions: [
-                'Send margin call SMS/email to borrower (NBFC obligation per RBI)',
+                'LienPay has frozen UPI spending (LTV ≥ 80%)',
+                'NBFC must send margin call SMS/email to borrower per RBI guidelines',
                 'Call POST /api/nbfc/margin-call/issue to record margin call in LienPay',
-                'Per RBI NPA framework: 90 days of non-payment → NPA → call POST /api/nbfc/pledge/invoke',
+                'Per RBI NPA framework: if unresolved after 90 days, call POST /api/nbfc/pledge/invoke',
               ],
             });
             results.webhooks_fired++;
 
-            audit('LTV_RED_WEBHOOK_SENT', account.user_id, {
-              account_id: account.account_id,
-              ltv_ratio:  health.ltv_ratio,
+            audit('LTV_RED_NOTIFIED', account.user_id, {
+              account_id:  account.account_id,
+              ltv_ratio:   ltv,
               outstanding: account.outstanding,
             });
             break;
@@ -281,7 +300,7 @@ const runDailyNAVMonitoring = async () => {
       }
     }
 
-    // 5. Store monitoring run summary in audit trail
+    // STEP 7: Store cron run summary
     const duration = Date.now() - startTime;
     await query(`
       INSERT INTO audit_trail (event_type, entity_type, new_values, created_at)
@@ -289,6 +308,7 @@ const runDailyNAVMonitoring = async () => {
     `, [JSON.stringify({ ...results, duration_ms: duration })]).catch(() => {});
 
     logger.info('✅ Daily NAV monitoring complete', results);
+
   } catch (err) {
     logger.error('❌ NAV monitoring run failed:', err.message);
     results.errors++;
@@ -297,19 +317,12 @@ const runDailyNAVMonitoring = async () => {
   return results;
 };
 
-// ── UPDATE PLEDGED HOLDING NAVs (LienPay's data job) ─────────
-const updatePledgedHoldingNAVs = async (navMap) => {
-  const today = new Date().toISOString().split('T')[0];
+// ── UPDATE NAV HISTORY ────────────────────────────────────────
+const updatePledgedHoldingNAVs = async (navMap, pledgeRows) => {
+  const today   = new Date().toISOString().split('T')[0];
+  let updated   = 0;
 
-  const pledges = await query(`
-    SELECT DISTINCT p.isin, mh.scheme_name
-    FROM pledges p
-    JOIN mf_holdings mh ON mh.isin = p.isin AND mh.user_id = p.user_id
-    WHERE p.status = 'ACTIVE'
-  `).catch(() => ({ rows: [] }));
-
-  let updated = 0;
-  for (const pledge of pledges.rows) {
+  for (const pledge of pledgeRows) {
     const navData = navMap[pledge.isin];
     if (!navData) continue;
 
@@ -322,7 +335,7 @@ const updatePledgedHoldingNAVs = async (navMap) => {
     updated++;
   }
 
-  logger.info(`📈 Updated NAVs for ${updated} pledged funds`);
+  logger.info(`📈 Updated NAVs for ${updated} pledged funds via MF Central`);
   return updated;
 };
 
@@ -330,11 +343,8 @@ const updatePledgedHoldingNAVs = async (navMap) => {
 const getLTVHealthSummary = async (userId) => {
   const result = await query(`
     SELECT
-      ca.ltv_ratio,
-      ca.ltv_alert_level,
-      ca.outstanding,
-      ca.available_credit,
-      ca.credit_limit,
+      ca.ltv_ratio, ca.ltv_alert_level, ca.outstanding,
+      ca.available_credit, ca.credit_limit, ca.upi_active,
       COUNT(p.pledge_id) as pledge_count,
       COALESCE(SUM(p.units_pledged * COALESCE(n.nav_value, p.nav_at_pledge)), 0) as current_pledge_value
     FROM credit_accounts ca
@@ -342,7 +352,7 @@ const getLTVHealthSummary = async (userId) => {
     LEFT JOIN nav_history n ON n.isin = p.isin AND n.nav_date = CURRENT_DATE
     WHERE ca.user_id = $1
     GROUP BY ca.account_id, ca.ltv_ratio, ca.ltv_alert_level,
-             ca.outstanding, ca.available_credit, ca.credit_limit
+             ca.outstanding, ca.available_credit, ca.credit_limit, ca.upi_active
   `, [userId]);
 
   return result.rows[0] || null;
@@ -352,5 +362,6 @@ module.exports = {
   runDailyNAVMonitoring,
   getLTVHealthSummary,
   updatePledgedHoldingNAVs,
-  fireNBFCWebhook, // exported so nbfc.routes can use it for ad-hoc notifications
+  fireNBFCWebhook,
+  createInAppAlert,
 };
