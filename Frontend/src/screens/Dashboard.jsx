@@ -16,108 +16,77 @@ const getGreeting = () => {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RISK SIMULATOR MODAL
+// RISK SIMULATOR
 // ─────────────────────────────────────────────────────────────
 function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
-  const [tab, setTab]         = useState('used')    // 'used' | 'available'
-  const [dropPct, setDropPct] = useState(0)         // portfolio drop scenario
+  const [tab, setTab]       = useState('used')
+  const [dropPct, setDropPct] = useState(0)
 
-  const creditLimit   = parseFloat(creditAccount?.credit_limit   || 0)
-  const outstanding   = parseFloat(creditAccount?.outstanding     || 0)
+  const creditLimit     = parseFloat(creditAccount?.credit_limit   || 0)
+  const outstanding     = parseFloat(creditAccount?.outstanding     || 0)
   const availableCredit = parseFloat(creditAccount?.available_credit || 0)
 
-  // Pledge value from ltvHealth, or fallback to credit_limit / 0.4 (rough estimate)
-  const pledgeValue   = parseFloat(ltvHealth?.current_pledge_value || creditLimit / 0.40 || 0)
-  const maxEligible   = parseFloat(ltvHealth?.max_eligible         || pledgeValue * 0.40 || 0)
+  const pledgeValue  = parseFloat(ltvHealth?.current_pledge_value || creditLimit / 0.40 || 0)
+  const maxEligible  = parseFloat(ltvHealth?.max_eligible         || pledgeValue * 0.40 || 0)
   const weightedLtvCap = maxEligible > 0 && pledgeValue > 0 ? maxEligible / pledgeValue : 0.40
 
-  // Slider value
   const [sliderVal, setSliderVal] = useState(tab === 'used' ? outstanding : availableCredit)
 
   useEffect(() => {
     setSliderVal(tab === 'used' ? outstanding : availableCredit)
   }, [tab, outstanding, availableCredit])
 
-  // Derived used amount
-  const usedAmount = tab === 'used'
-    ? sliderVal
-    : creditLimit - sliderVal
+  const usedAmount = tab === 'used' ? sliderVal : creditLimit - sliderVal
 
-  // LTV calculation with portfolio drop
-  const calcLTV = (used, dropPercent) => {
+  const calcLTV = (used, drop) => {
     if (maxEligible <= 0 || used <= 0) return 0
-    const adjustedMax = maxEligible * (1 - dropPercent / 100)
-    if (adjustedMax <= 0) return 999
-    return (used / adjustedMax) * 100
+    const adj = maxEligible * (1 - drop / 100)
+    return adj <= 0 ? 999 : (used / adj) * 100
   }
 
-  const currentLTV    = calcLTV(usedAmount, 0)
-  const afterDropLTV  = calcLTV(usedAmount, dropPct)
-  const afterDropPledgeValue = pledgeValue * (1 - dropPct / 100)
-  const afterDropMaxEligible = maxEligible * (1 - dropPct / 100)
+  const currentLTV   = calcLTV(usedAmount, 0)
+  const afterDropLTV = calcLTV(usedAmount, dropPct)
+  const afterDropPledgeValue  = pledgeValue * (1 - dropPct / 100)
 
   const getLtvStatus = (ltv) => {
-    if (ltv >= 95) return { label: 'Critical', color: '#EF4444', bg: 'rgba(239,68,68,0.1)', dot: '#EF4444' }
-    if (ltv >= 90) return { label: 'Action',   color: '#F97316', bg: 'rgba(249,115,22,0.1)', dot: '#F97316' }
-    if (ltv >= 80) return { label: 'Watch',    color: '#F59E0B', bg: 'rgba(245,158,11,0.1)', dot: '#F59E0B' }
-    return                 { label: 'Healthy', color: '#00D4A1', bg: 'rgba(0,212,161,0.08)', dot: '#00D4A1' }
+    if (ltv >= 95) return { label: 'Critical', color: '#EF4444' }
+    if (ltv >= 90) return { label: 'Action',   color: '#F97316' }
+    if (ltv >= 80) return { label: 'Watch',     color: '#F59E0B' }
+    return               { label: 'Healthy',    color: '#00D4A1' }
   }
 
-  const status       = getLtvStatus(currentLTV)
-  const afterStatus  = getLtvStatus(afterDropLTV)
+  const status      = getLtvStatus(currentLTV)
+  const afterStatus = getLtvStatus(afterDropLTV)
 
-  const DROP_OPTIONS = [0, -5, -10, -15, -20, -30]
-  const QUICK_PCTS   = tab === 'used'
-    ? [{ l: '0',   v: 0 }, { l: '25%', v: creditLimit * 0.25 }, { l: '50%', v: creditLimit * 0.5 }, { l: '75%', v: creditLimit * 0.75 }, { l: 'MAX', v: creditLimit }]
+  const QUICK_PCTS = tab === 'used'
+    ? [{ l: '0', v: 0 }, { l: '25%', v: creditLimit * 0.25 }, { l: '50%', v: creditLimit * 0.5 }, { l: '75%', v: creditLimit * 0.75 }, { l: 'MAX', v: creditLimit }]
     : [{ l: 'MAX', v: creditLimit }, { l: '75%', v: creditLimit * 0.75 }, { l: '50%', v: creditLimit * 0.5 }, { l: '25%', v: creditLimit * 0.25 }, { l: '0', v: 0 }]
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}
-      onClick={onClose}
-    >
-      <motion.div
-        initial={{ y: '100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '100%' }}
-        transition={{ type: 'spring', stiffness: 280, damping: 32 }}
+      onClick={onClose}>
+      <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 280, damping: 32 }}
         style={{ background: 'var(--bg-elevated)', borderRadius: '28px 28px 0 0', padding: '24px 20px 44px', width: '100%', maxHeight: '92vh', overflowY: 'auto' }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
+        onClick={e => e.stopPropagation()}>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div>
-            <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 2 }}>RISK SIMULATOR</p>
-          </div>
+          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>RISK SIMULATOR</p>
           <motion.button whileTap={{ scale: 0.88 }} onClick={onClose}
-            style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--bg-overlay)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: 'var(--text-muted)' }}>
-            ×
-          </motion.button>
+            style={{ width: 32, height: 32, borderRadius: 10, background: 'var(--bg-overlay)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, color: 'var(--text-muted)' }}>×</motion.button>
         </div>
 
-        {/* LTV status pill */}
+        {/* LTV status */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: status.dot, boxShadow: `0 0 6px ${status.dot}` }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', background: status.color }} />
           <span style={{ fontSize: 14, fontWeight: 700, color: status.color }}>{status.label}</span>
-          <div style={{ display: 'flex', gap: 8, marginLeft: 4 }}>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>LTV</span>
-            <span style={{ fontSize: 11, color: status.color, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{currentLTV.toFixed(1)}%</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Cap</span>
-            <span style={{ fontSize: 11, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{(weightedLtvCap * 100).toFixed(0)}%</span>
-          </div>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 4 }}>LTV {currentLTV.toFixed(1)}%</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Cap {(weightedLtvCap * 100).toFixed(0)}%</span>
         </div>
 
-        {/* LTV scale legend */}
+        {/* Legend */}
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
-          {[
-            { label: 'Healthy', range: '< 80%', color: '#00D4A1' },
-            { label: 'Watch',   range: '80–89%', color: '#F59E0B' },
-            { label: 'Action',  range: '90–94%', color: '#F97316' },
-            { label: 'Critical',range: '≥ 95%',  color: '#EF4444' },
-          ].map((s, i) => (
+          {[{ label: 'Healthy', range: '< 80%', color: '#00D4A1' }, { label: 'Watch', range: '80–89%', color: '#F59E0B' }, { label: 'Action', range: '90–94%', color: '#F97316' }, { label: 'Critical', range: '≥ 95%', color: '#EF4444' }].map((s, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: i < 3 ? 8 : 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ width: 7, height: 7, borderRadius: '50%', background: s.color }} />
@@ -131,129 +100,74 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
         {/* Used / Available toggle */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, background: 'var(--bg-surface)', borderRadius: 14, padding: 4, marginBottom: 20 }}>
           {['used', 'available'].map(t => (
-            <motion.button key={t} whileTap={{ scale: 0.96 }}
-              onClick={() => setTab(t)}
-              style={{
-                height: 40, borderRadius: 11, fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)',
-                background: tab === t ? (t === 'used' ? '#C9A449' : 'var(--jade)') : 'transparent',
-                color: tab === t ? (t === 'used' ? '#000' : '#000') : 'var(--text-muted)',
-                border: 'none',
-                transition: 'all 0.2s',
-              }}>
+            <motion.button key={t} whileTap={{ scale: 0.96 }} onClick={() => setTab(t)}
+              style={{ height: 40, borderRadius: 11, fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-sans)', background: tab === t ? (t === 'used' ? '#C9A449' : 'var(--jade)') : 'transparent', color: tab === t ? '#000' : 'var(--text-muted)', border: 'none', transition: 'all 0.2s' }}>
               {t.charAt(0).toUpperCase() + t.slice(1)}
             </motion.button>
           ))}
         </div>
 
         {/* Amount display */}
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 12 }}>
-            {tab === 'used' ? 'USED AMOUNT' : 'AVAILABLE CREDIT'}
+        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 12 }}>
+          {tab === 'used' ? 'USED AMOUNT' : 'AVAILABLE CREDIT'}
+        </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSliderVal(v => Math.max(0, v - 10000))}
+            style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 20, color: 'var(--text-secondary)', flexShrink: 0 }}>−</motion.button>
+          <p style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 34, color: tab === 'used' ? (sliderVal > 0 ? '#C9A449' : 'var(--text-secondary)') : 'var(--jade)' }}>
+            {fmtL(sliderVal)}
           </p>
-
-          {/* Stepper */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-            <motion.button whileTap={{ scale: 0.88 }}
-              onClick={() => setSliderVal(v => Math.max(0, v - 10000))}
-              style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 20, color: 'var(--text-secondary)', flexShrink: 0 }}>
-              −
-            </motion.button>
-            <div style={{ flex: 1, textAlign: 'center' }}>
-              <p style={{
-                fontFamily: 'var(--font-display)', fontSize: 34,
-                color: tab === 'used' ? (sliderVal > 0 ? '#C9A449' : 'var(--text-secondary)') : 'var(--jade)',
-              }}>
-                {fmtL(sliderVal)}
-              </p>
-            </div>
-            <motion.button whileTap={{ scale: 0.88 }}
-              onClick={() => setSliderVal(v => Math.min(creditLimit, v + 10000))}
-              style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 20, color: 'var(--text-secondary)', flexShrink: 0 }}>
-              +
-            </motion.button>
-          </div>
-
-          {/* Slider */}
-          <input
-            type="range"
-            min={0} max={creditLimit || 1000000}
-            step={5000}
-            value={sliderVal}
-            onChange={e => setSliderVal(parseFloat(e.target.value))}
-            style={{ width: '100%', marginBottom: 10, accentColor: tab === 'used' ? '#C9A449' : 'var(--jade)' }}
-          />
-
-          {/* Quick buttons */}
-          <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between' }}>
-            {QUICK_PCTS.map(q => (
-              <motion.button key={q.l} whileTap={{ scale: 0.9 }}
-                onClick={() => setSliderVal(q.v)}
-                style={{ flex: 1, height: 30, borderRadius: 8, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: Math.abs(sliderVal - q.v) < 1 ? 'var(--jade)' : 'var(--bg-surface)', color: Math.abs(sliderVal - q.v) < 1 ? '#000' : 'var(--text-muted)' }}>
-                {q.l}
-              </motion.button>
-            ))}
-          </div>
+          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSliderVal(v => Math.min(creditLimit, v + 10000))}
+            style={{ width: 44, height: 44, borderRadius: 14, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 20, color: 'var(--text-secondary)', flexShrink: 0 }}>+</motion.button>
         </div>
 
-        {/* Portfolio Drop */}
+        <input type="range" min={0} max={creditLimit || 1000000} step={5000} value={sliderVal} onChange={e => setSliderVal(parseFloat(e.target.value))}
+          style={{ width: '100%', marginBottom: 10, accentColor: tab === 'used' ? '#C9A449' : 'var(--jade)' }} />
+
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'space-between', marginBottom: 20 }}>
+          {QUICK_PCTS.map(q => (
+            <motion.button key={q.l} whileTap={{ scale: 0.9 }} onClick={() => setSliderVal(q.v)}
+              style={{ flex: 1, height: 30, borderRadius: 8, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: Math.abs(sliderVal - q.v) < 1 ? 'var(--jade)' : 'var(--bg-surface)', color: Math.abs(sliderVal - q.v) < 1 ? '#000' : 'var(--text-muted)' }}>
+              {q.l}
+            </motion.button>
+          ))}
+        </div>
+
+        {/* Portfolio drop */}
         <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
             <span style={{ fontSize: 14 }}>📉</span>
             <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO DROP</p>
           </div>
-
-          {/* Drop slider */}
-          <input
-            type="range"
-            min={0} max={30}
-            step={5}
-            value={dropPct}
-            onChange={e => setDropPct(parseFloat(e.target.value))}
-            style={{ width: '100%', marginBottom: 10, accentColor: '#EF4444' }}
-          />
-
+          <input type="range" min={0} max={30} step={5} value={dropPct} onChange={e => setDropPct(parseFloat(e.target.value))}
+            style={{ width: '100%', marginBottom: 10, accentColor: '#EF4444' }} />
           <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
-            {DROP_OPTIONS.map(d => (
-              <motion.button key={d} whileTap={{ scale: 0.9 }}
-                onClick={() => setDropPct(Math.abs(d))}
-                style={{
-                  flex: 1, height: 30, borderRadius: 8, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600,
-                  border: '1px solid var(--border)',
-                  background: dropPct === Math.abs(d) ? (d <= -20 ? '#EF4444' : 'var(--bg-overlay)') : 'var(--bg-elevated)',
-                  color: dropPct === Math.abs(d) ? (d <= -20 ? '#fff' : 'var(--text-primary)') : 'var(--text-muted)',
-                }}>
+            {[0, -5, -10, -15, -20, -30].map(d => (
+              <motion.button key={d} whileTap={{ scale: 0.9 }} onClick={() => setDropPct(Math.abs(d))}
+                style={{ flex: 1, height: 30, borderRadius: 8, fontSize: 10, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: dropPct === Math.abs(d) ? (d <= -20 ? '#EF4444' : 'var(--bg-overlay)') : 'var(--bg-elevated)', color: dropPct === Math.abs(d) ? (d <= -20 ? '#fff' : 'var(--text-primary)') : 'var(--text-muted)' }}>
                 {d === 0 ? '0' : `${d}%`}
               </motion.button>
             ))}
           </div>
-
-          {/* Results grid */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-            <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>ORIGINAL</p>
-              <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtL(pledgeValue)}</p>
-            </div>
-            <div style={{ background: dropPct > 0 ? 'rgba(239,68,68,0.08)' : 'var(--bg-elevated)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>AFTER DROP</p>
-              <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' }}>{fmtL(afterDropPledgeValue)}</p>
-            </div>
-            <div style={{ background: afterDropLTV >= 80 ? (afterDropLTV >= 90 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)') : 'var(--jade-dim)', borderRadius: 12, padding: '10px 12px' }}>
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>LTV</p>
-              <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: afterStatus.color }}>
-                {dropPct > 0 ? `${afterDropLTV.toFixed(1)}%` : `${currentLTV.toFixed(1)}%`}
-              </p>
-            </div>
+            {[
+              { label: 'ORIGINAL', value: fmtL(pledgeValue), color: 'var(--text-primary)' },
+              { label: 'AFTER DROP', value: fmtL(afterDropPledgeValue), color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' },
+              { label: 'LTV', value: `${(dropPct > 0 ? afterDropLTV : currentLTV).toFixed(1)}%`, color: afterStatus.color },
+            ].map((s, i) => (
+              <div key={i} style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '10px 12px' }}>
+                <p style={{ fontSize: 9, color: 'var(--text-muted)', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>{s.label}</p>
+                <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>{s.value}</p>
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Warning if crossing threshold */}
-        {dropPct > 0 && afterDropLTV > currentLTV && afterDropLTV >= 80 && (
+        {dropPct > 0 && afterDropLTV >= 80 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
             style={{ background: afterDropLTV >= 90 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)', border: `1px solid ${afterDropLTV >= 90 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 12 }}>
             <p style={{ fontSize: 12, color: afterDropLTV >= 90 ? '#EF4444' : '#F59E0B', fontWeight: 700 }}>
-              {afterDropLTV >= 95 ? '🔴 Critical zone — margin call triggered'
-                : afterDropLTV >= 90 ? '🟠 Action required — add collateral or repay'
-                : '🟡 Watch zone — monitor closely'}
+              {afterDropLTV >= 95 ? '🔴 Critical — margin call triggered' : afterDropLTV >= 90 ? '🟠 Action required' : '🟡 Watch zone'}
             </p>
           </motion.div>
         )}
@@ -271,20 +185,11 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
 // ─────────────────────────────────────────────────────────────
 export default function Dashboard({ onPay }) {
   const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth, setTransactions, transactions, activeTab, setActiveTab } = useStore()
-  const [loading, setLoading]     = useState(!creditAccount)
+  const [loading, setLoading]         = useState(!creditAccount)
   const [showAllTxns, setShowAllTxns] = useState(false)
   const [showSimulator, setShowSimulator] = useState(false)
   const scrollRef = useRef(null)
   const scrollY   = useScrollY(scrollRef)
-
-  const handleViewAll = async () => {
-    if (showAllTxns) { setShowAllTxns(false); return }
-    try {
-      const r = await getTxnHistory({ limit: 100 })
-      setTransactions(r.data?.transactions || [])
-    } catch(e) {}
-    setShowAllTxns(true)
-  }
 
   useEffect(() => {
     const load = async () => {
@@ -301,11 +206,10 @@ export default function Dashboard({ onPay }) {
   const creditLimit = parseFloat(account?.credit_limit     || 0)
   const outstanding = parseFloat(account?.outstanding      || 0)
 
-  // ── FIX: read ltv_ratio OR ltv ──────────────────────────────
   const ltv      = ltvHealth
   const ltvRatio = parseFloat(ltv?.ltv_ratio ?? ltv?.ltv ?? 0)
-  const ltvColor = ltv?.status === 'RED' || ltvRatio >= 90 ? 'var(--red)'
-    : ltv?.status === 'AMBER' || ltvRatio >= 80 ? 'var(--amber)'
+  const ltvColor = ltvRatio >= 90 || ltv?.status === 'RED'   ? 'var(--red)'
+    :              ltvRatio >= 80 || ltv?.status === 'AMBER' ? 'var(--amber)'
     : 'var(--jade)'
 
   const displayedTxns = showAllTxns ? transactions : transactions.slice(0, 5)
@@ -313,62 +217,55 @@ export default function Dashboard({ onPay }) {
   const txnIcon = (name) => {
     const n = (name || '').toLowerCase()
     if (n.includes('zomato') || n.includes('swiggy') || n.includes('food')) return '🍕'
-    if (n.includes('uber') || n.includes('ola') || n.includes('rapido')) return '🚗'
+    if (n.includes('uber') || n.includes('ola')) return '🚗'
     if (n.includes('amazon') || n.includes('flipkart')) return '📦'
     if (n.includes('netflix') || n.includes('spotify')) return '🎬'
     return '💳'
   }
 
+  const handleViewAll = async () => {
+    if (showAllTxns) { setShowAllTxns(false); return }
+    try { const r = await getTxnHistory({ limit: 100 }); setTransactions(r.data?.transactions || []) } catch(e) {}
+    setShowAllTxns(true)
+  }
+
+  // Scroll-driven transforms
+  const ringScale   = Math.max(0.88, 1 - scrollY / 500)
+  const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
+  const headerY     = Math.min(0, -scrollY * 0.12)
+
+  if (loading) return (
+    <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-void)' }}>
+      <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+        style={{ width: 36, height: 36, border: '2px solid var(--bg-elevated)', borderTopColor: 'var(--jade)', borderRadius: '50%' }} />
+    </div>
+  )
+
   return (
-    <div className="screen" ref={scrollRef}>
-
-      {/* Background blobs */}
-      <LiquidBlob size={320} color="var(--jade)" top="-100px" right="-80px" />
-      <LiquidBlob size={220} color="var(--jade)" bottom="200px" left="-60px" delay={3} />
-
-      {/* Risk Simulator floating button */}
-      <motion.button
-        whileTap={{ scale: 0.9 }}
-        onClick={() => setShowSimulator(true)}
-        style={{
-          position: 'fixed', right: 16, bottom: 100, zIndex: 150,
-          width: 46, height: 46, borderRadius: 15,
-          background: 'linear-gradient(135deg, #1A2520, #0E1C18)',
-          border: '1px solid var(--jade-border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 18,
-          boxShadow: '0 4px 16px rgba(0,212,161,0.15)',
-        }}
-      >
+    <div ref={scrollRef} className="screen">
+      {/* Risk Simulator floating trigger */}
+      <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSimulator(true)}
+        style={{ position: 'fixed', right: 16, bottom: 100, zIndex: 150, width: 46, height: 46, borderRadius: 15, background: 'linear-gradient(135deg, #1A2520, #0E1C18)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 4px 16px rgba(0,212,161,0.15)' }}>
         ⚡
       </motion.button>
 
-      <div style={{ padding: '0 20px' }}>
+      {/* Liquid blobs */}
+      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+        <LiquidBlob size={320} color="var(--jade)" top={`${-100 - scrollY * 0.2}px`} right="-80px" />
+        <LiquidBlob size={200} color="var(--jade)" top={`${400 - scrollY * 0.1}px`} left="-60px" delay={3} />
+      </div>
 
+      <div style={{ position: 'relative', zIndex: 1, padding: '0 22px' }}>
         {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -16 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{ paddingTop: 28, marginBottom: 24 }}
-        >
-          <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '2px', marginBottom: 4 }}>LIENPAY</p>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 300, lineHeight: 1.1 }}>
-            {getGreeting()},
-          </h1>
-          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 400, lineHeight: 1.1 }}>
-            {account?.full_name?.split(' ')[0] || 'there'}
-          </h1>
-        </motion.div>
+        <div style={{ paddingTop: 20, paddingBottom: 16, transform: `translateY(${headerY}px)` }}>
+          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>LIENPAY</p>
+          <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, marginTop: 4, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
+        </div>
 
-        {/* Credit ring */}
-        <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1, duration: 0.6 }}
-          style={{ display: 'flex', justifyContent: 'center', marginBottom: 20 }}>
-          <CreditRing
-            available={available}
-            creditLimit={creditLimit}
-            outstanding={outstanding}
-          />
-        </motion.div>
+        {/* Credit Ring — FIX: pass `limit` not `creditLimit` */}
+        <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 8, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
+          <CreditRing limit={creditLimit} available={available} />
+        </div>
 
         {/* CLOU badge */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
@@ -380,12 +277,12 @@ export default function Dashboard({ onPay }) {
         </div>
 
         {/* Stats */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }}>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 20 }}>
             {[
-              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR',         v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
+              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`,     c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`,   c: ltvColor },
+              { l: 'APR',         v: `${account?.apr || '12'}%`,  c: 'var(--text-secondary)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 12px', textAlign: 'center' }}>
                 <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 6 }}>{s.l}</p>
@@ -399,7 +296,7 @@ export default function Dashboard({ onPay }) {
         <AnimatePresence>
           {ltv && (ltv.status === 'RED' || ltv.status === 'AMBER' || ltvRatio >= 80) && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 0.2 }}
-              style={{ background: ltvColor === 'var(--red)' ? 'var(--red-dim)' : 'var(--amber-dim)', border: `1px solid ${ltvColor === 'var(--red)' ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`, borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
+              style={{ background: ltvRatio >= 90 ? 'var(--red-dim)' : 'var(--amber-dim)', border: `1px solid ${ltvRatio >= 90 ? 'rgba(224,82,82,0.25)' : 'rgba(224,160,48,0.25)'}`, borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
               <p style={{ fontSize: 13, fontWeight: 700, color: ltvColor, marginBottom: 4 }}>
                 {ltvRatio >= 90 ? '⚠️ Margin Call — Action Required' : '⚡ Portfolio Alert'}
               </p>
@@ -419,18 +316,16 @@ export default function Dashboard({ onPay }) {
         </AnimatePresence>
 
         {/* Pay CTA */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25, duration: 0.5 }}>
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
           <motion.button
             whileHover={{ scale: 1.02, boxShadow: '0 16px 48px rgba(0,212,161,0.35)' }}
-            whileTap={{ scale: 0.96 }}
-            onClick={onPay}
+            whileTap={{ scale: 0.96 }} onClick={onPay}
             style={{
-              width: '100%', height: 62, borderRadius: 16,
+              width: '100%', height: 62, borderRadius: 16, marginBottom: 24,
               background: available > 0 ? 'linear-gradient(135deg, var(--jade), #00A878)' : 'var(--bg-elevated)',
               color: available > 0 ? 'var(--bg-void)' : 'var(--text-muted)',
               fontSize: 16, fontWeight: 800, fontFamily: 'var(--font-sans)',
               border: available <= 0 ? '1px solid var(--border)' : 'none',
-              marginBottom: 24,
               letterSpacing: '-0.3px',
             }}>
             {available > 0 ? `Scan & Pay · ${fmtL(available)} available` : 'No credit available — repay first'}
@@ -439,7 +334,7 @@ export default function Dashboard({ onPay }) {
 
         {/* Transactions */}
         {transactions.length > 0 && (
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.5 }}>
+          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>TRANSACTIONS</p>
               <motion.button whileTap={{ scale: 0.96 }} onClick={handleViewAll}
@@ -447,10 +342,9 @@ export default function Dashboard({ onPay }) {
                 {showAllTxns ? 'Show less' : 'View all'}
               </motion.button>
             </div>
-
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {displayedTxns.map((txn, i) => (
-                <ScrollReveal key={txn.txn_id || i}>
+                <ScrollReveal key={txn.txn_id || i} scrollY={scrollY}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
                     <div style={{ width: 40, height: 40, borderRadius: 13, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
                       {txnIcon(txn.merchant_name)}
@@ -462,12 +356,8 @@ export default function Dashboard({ onPay }) {
                       </p>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                        ₹{fmt(txn.amount)}
-                      </p>
-                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', letterSpacing: '0.5px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
-                        {txn.status}
-                      </p>
+                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>₹{fmt(txn.amount)}</p>
+                      <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', letterSpacing: '0.5px', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{txn.status}</p>
                     </div>
                   </div>
                 </ScrollReveal>
@@ -476,8 +366,8 @@ export default function Dashboard({ onPay }) {
           </motion.div>
         )}
 
-        {/* Portfolio health peek */}
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.5 }}>
+        {/* Portfolio peek */}
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
           <div style={{ background: 'linear-gradient(135deg, rgba(0,212,161,0.08), rgba(0,212,161,0.03))', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '18px', marginBottom: 24, marginTop: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO</span>
@@ -492,17 +382,12 @@ export default function Dashboard({ onPay }) {
             <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>Pledged portfolio value</p>
           </div>
         </motion.div>
-
       </div>
 
-      {/* Risk Simulator modal */}
+      {/* Risk Simulator */}
       <AnimatePresence>
         {showSimulator && (
-          <RiskSimulator
-            creditAccount={creditAccount}
-            ltvHealth={ltvHealth}
-            onClose={() => setShowSimulator(false)}
-          />
+          <RiskSimulator creditAccount={creditAccount} ltvHealth={ltvHealth} onClose={() => setShowSimulator(false)} />
         )}
       </AnimatePresence>
     </div>
