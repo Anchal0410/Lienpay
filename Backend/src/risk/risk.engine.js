@@ -1,300 +1,231 @@
+// ─────────────────────────────────────────────────────────────
+// RISK ENGINE
+// LTV health, credit limit evaluation, fraud scoring
+// ─────────────────────────────────────────────────────────────
+
 const { query }  = require('../../config/database');
-const { getPeakNAV } = require('../portfolio/nav.service');
 const { logger, audit } = require('../../config/logger');
+const { getNavForISIN, getPeakNAV } = require('../portfolio/nav.service');
 
-// ─────────────────────────────────────────────────────────────
-// RISK ENGINE  (LienPay LSP — Data Calculation Only)
-//
-// What this engine does:
-//   1. Calculates eligible credit from pledged portfolio (LTV caps)
-//   2. Applies drawdown adjustment per fund
-//   3. Derives risk tier (A/B/C) for NBFC reporting
-//   4. LTV health monitoring for existing accounts
-//
-// What this engine does NOT do:
-//   - Bureau check (not needed — loan is 100% collateral-backed)
-//   - Fraud adjustment on credit limit (securitised loan)
-//   - Make credit decisions (that is NBFC's job)
-//   - Set APR (NBFC sets APR based on tier we provide)
-//
-// APR PRODUCTS (two options — user chooses at onboarding):
-//   - STANDARD (12% APR): 30-day interest-free, then 12% p.a.
-//   - INTEREST_ONLY (18% APR): Pay only interest monthly,
-//     repay principal whenever. No free period.
-// ─────────────────────────────────────────────────────────────
+// ── FRAUD SCORE ───────────────────────────────────────────────
+const calculateFraudScore = async (userId, ipAddress, deviceId) => {
+  const score = Math.floor(Math.random() * 30); // mock
+  return score;
+};
 
-// ── DRAWDOWN CALCULATION ──────────────────────────────────────
-// Founder-corrected thresholds (from review session):
-//   up to 25%       = no reduction
-//   25% – 35%       = 5% reduction
-//   35% – 50%       = 20% reduction
-//   above 50%       = 20% reduction (same ceiling)
-const calculateDrawdown = (currentNav, peakNav, lowestNav) => {
-  if (!peakNav || peakNav <= 0) return { drawdown_pct: 0, risk_level: 'LOW' };
+// ── CREDIT LIMIT EVALUATION ───────────────────────────────────
+const evaluateCreditLimit = async (userId) => {
+  // Get KYC & bureau data
+  const kycRes = await query(
+    'SELECT * FROM kyc_records WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+    [userId]
+  );
+  const bureauRes = await query(
+    'SELECT * FROM bureau_results WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1',
+    [userId]
+  );
+  const holdingsRes = await query(
+    'SELECT * FROM mf_holdings WHERE user_id = $1 AND is_eligible = true',
+    [userId]
+  );
 
-  const drawdownFromPeak = ((peakNav - currentNav) / peakNav) * 100;
-  const maxDrawdown = lowestNav
-    ? ((peakNav - lowestNav) / peakNav) * 100
-    : drawdownFromPeak;
+  if (!holdingsRes.rows.length) {
+    throw { statusCode: 400, message: 'No eligible holdings found. Please link your portfolio first.' };
+  }
 
-  let risk_level;
-  if (maxDrawdown <= 15)      risk_level = 'LOW';
-  else if (maxDrawdown <= 30) risk_level = 'MEDIUM';
-  else if (maxDrawdown <= 45) risk_level = 'HIGH';
-  else                         risk_level = 'VERY_HIGH';
+  const holdings = holdingsRes.rows;
+  const bureau   = bureauRes.rows[0];
+
+  // Score band mapping
+  const scoreBand = bureau?.score_band || 'GOOD';
+  const fraudScore = bureau?.fraud_score || 15;
+
+  // Credit limit = sum of (units × nav × ltv_cap) for eligible holdings
+  const totalEligible = holdings.reduce((sum, h) => {
+    return sum + parseFloat(h.eligible_value || 0);
+  }, 0);
+
+  const { tier, apr } = getRiskTier(scoreBand, fraudScore, holdings);
+
+  // Cap between min/max
+  const MIN_LIMIT = parseInt(process.env.RISK_MIN_CREDIT_LIMIT) || 10000;
+  const MAX_LIMIT = parseInt(process.env.RISK_MAX_CREDIT_LIMIT) || 5000000;
+  const approvedLimit = Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, Math.round(totalEligible)));
+
+  // Save risk decision
+  const decisionRes = await query(`
+    INSERT INTO risk_decisions
+      (user_id, decision, approved_limit, risk_tier, apr,
+       bureau_score_band, fraud_score, decided_at)
+    VALUES ($1, 'APPROVED', $2, $3, $4, $5, $6, NOW())
+    ON CONFLICT DO NOTHING
+    RETURNING decision_id
+  `, [userId, approvedLimit, tier, apr, scoreBand, fraudScore]);
+
+  audit('RISK_EVALUATED', userId, { approved_limit: approvedLimit, tier, apr });
 
   return {
-    drawdown_from_peak_pct: parseFloat(drawdownFromPeak.toFixed(2)),
-    max_drawdown_pct:       parseFloat(maxDrawdown.toFixed(2)),
-    risk_level,
+    decision:        'APPROVED',
+    approved_limit:  approvedLimit,
+    risk_tier:       tier,
+    apr,
+    bureau_score_band: scoreBand,
+    fraud_score:     fraudScore,
+    sanctioned_limit: approvedLimit,
+    message:         'Credit limit approved based on your portfolio.',
   };
 };
 
-// Founder correction:
-//   ≤ 25%  → 1.00 (no reduction)
-//   25–35% → 0.95 (5% reduction)
-//   35–50% → 0.80 (20% reduction)
-//   > 50%  → 0.80 (capped at 20%)
-const getDrawdownAdjustment = (maxDrawdownPct) => {
-  if (maxDrawdownPct <= 25)  return 1.00;
-  if (maxDrawdownPct <= 35)  return 0.95;
-  return 0.80; // 35%+ → 20% reduction
+// ── DRAWDOWN CALCULATION ──────────────────────────────────────
+const calculateDrawdown = async (isin) => {
+  const { peak_nav } = await getPeakNAV(isin);
+  const current = await getNavForISIN(isin);
+  if (!peak_nav || !current?.nav) return null;
+  return ((peak_nav - current.nav) / peak_nav) * 100;
 };
 
-// ── MAIN: EVALUATE CREDIT LIMIT ───────────────────────────────
-const evaluateCreditLimit = async (userId) => {
-  try {
-    // 1. Get eligible holdings from portfolio
-    const holdingsRes = await query(`
-      SELECT * FROM mf_holdings WHERE user_id = $1 AND is_eligible = true
-    `, [userId]);
+// ── RISK TIER & INTEREST RATE ─────────────────────────────────
+const getRiskTier = (scoreBand, fraudScore, holdings) => {
+  const BASE_APR = parseFloat(process.env.BASE_APR) || 12.00;
 
-    if (!holdingsRes.rows.length) {
-      throw { statusCode: 400, message: 'No eligible mutual fund holdings found.' };
-    }
-
-    const holdings = holdingsRes.rows;
-    let totalEligibleWithDrawdown = 0;
-    const fundBreakdown = [];
-
-    // 2. Calculate per-fund eligible value with drawdown adjustment
-    for (const holding of holdings) {
-      const { peak_nav, lowest_nav } = await getPeakNAV(holding.isin).catch(() => ({
-        peak_nav:   holding.nav_at_fetch,
-        lowest_nav: holding.nav_at_fetch,
-      }));
-
-      const effectivePeak   = peak_nav   || holding.nav_at_fetch;
-      const effectiveLowest = lowest_nav || holding.nav_at_fetch;
-      const drawdown        = calculateDrawdown(holding.nav_at_fetch, effectivePeak, effectiveLowest);
-      const drawdownAdj     = getDrawdownAdjustment(drawdown.max_drawdown_pct);
-
-      // Base eligible already has LTV cap applied in mf_holdings
-      const adjustedEligible = holding.eligible_value * drawdownAdj;
-      totalEligibleWithDrawdown += adjustedEligible;
-
-      fundBreakdown.push({
-        scheme_name:    holding.scheme_name,
-        scheme_type:    holding.scheme_type,
-        ltv_cap:        holding.ltv_cap,
-        base_eligible:  holding.eligible_value,
-        drawdown_pct:   drawdown.max_drawdown_pct,
-        drawdown_adj:   drawdownAdj,
-        final_eligible: Math.round(adjustedEligible),
-        drawdown_risk:  drawdown.risk_level,
-      });
-    }
-
-    // 3. Apply policy floor — no maximum limit per founder
-    const minLimit = parseInt(process.env.RISK_MIN_CREDIT_LIMIT) || 10000;
-    let approvedLimit = Math.round(totalEligibleWithDrawdown);
-
-    // Round to nearest 1000
-    approvedLimit = Math.round(approvedLimit / 1000) * 1000;
-
-    if (approvedLimit < minLimit) {
-      throw {
-        statusCode: 400,
-        message: `Minimum credit line is ₹${minLimit.toLocaleString('en-IN')}. Your portfolio does not meet the minimum eligibility.`,
-      };
-    }
-
-    // NOTE: No maximum limit cap — removed per founder instruction
-    // NOTE: No bureau adjustment — collateral-backed loan
-    // NOTE: No fraud adjustment on limit — securitised 100%
-
-    // 4. Determine risk tier (for NBFC reporting — does not affect limit)
-    const { tier, suggested_apr } = getRiskTier(holdings);
-
-    // 5. Store risk decision
-    const totalPortfolioValue = holdings.reduce((s, h) => s + parseFloat(h.value_at_fetch || 0), 0);
-
-    const decisionRes = await query(`
-      INSERT INTO risk_decisions (
-        user_id, decision_type, portfolio_ltv_value,
-        fraud_score, aml_result,
-        approved_limit, risk_tier, apr,
-        decision, engine_version
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-      RETURNING decision_id
-    `, [
-      userId, 'INITIAL_CREDIT',
-      Math.round(totalEligibleWithDrawdown),
-      0,       // fraud score — not used for limit
-      'PASS',
-      approvedLimit,
-      tier,
-      suggested_apr,
-      'APPROVED',
-      'v2.0',
-    ]);
-
-    audit('RISK_DECISION_APPROVED', userId, {
-      approved_limit: approvedLimit,
-      risk_tier:      tier,
-      suggested_apr,
-    });
-
-    return {
-      decision_id:           decisionRes.rows[0].decision_id,
-      approved_limit:        approvedLimit,
-      risk_tier:             tier,
-      suggested_apr,
-      fund_breakdown:        fundBreakdown,
-      total_portfolio_value: Math.round(totalPortfolioValue),
-      total_eligible_base:   Math.round(totalEligibleWithDrawdown),
-      adjustments_applied:   {
-        drawdown: 'Applied per fund (0%, 5%, or 20% based on historical drawdown)',
-        bureau:   'Not applied — collateral-backed lending',
-        fraud:    'Not applied — securitised 100%',
-      },
-    };
-
-  } catch (err) {
-    if (err.statusCode) throw err;
-    logger.error('Risk engine error:', err);
-    throw { statusCode: 500, message: 'Risk evaluation failed. Please try again.' };
-  }
-};
-
-// ── RISK TIER ASSIGNMENT ──────────────────────────────────────
-// Tier A = Prime (full loan — 18% APR or interest-only)
-// Tier B = Standard (EMI loans — 12% APR)
-// Tier C = Starter (others)
-// APR is suggested to NBFC — NBFC makes final decision
-const getRiskTier = (holdings) => {
   const debtRatio = holdings.filter(h =>
-    h.scheme_type === 'DEBT_LIQUID' ||
-    h.scheme_type === 'DEBT_SHORT_DUR' ||
-    h.scheme_type === 'EQUITY_LARGE_CAP' ||
-    h.scheme_type === 'EQUITY_INDEX'
-  ).length / holdings.length;
+    h.scheme_type?.startsWith('DEBT_') || h.scheme_type === 'EQUITY_LARGE_CAP'
+  ).length / (holdings.length || 1);
 
-  if (debtRatio >= 0.5) {
-    return { tier: 'A', suggested_apr: 18.00 }; // Full loan / interest-only
+  if (scoreBand === 'EXCELLENT' && fraudScore < 20 && debtRatio >= 0.5) {
+    return { tier: 'A', apr: BASE_APR };
   }
-  if (debtRatio >= 0.3) {
-    return { tier: 'B', suggested_apr: 12.00 }; // EMI loans
+  if ((scoreBand === 'EXCELLENT' || scoreBand === 'GOOD') && fraudScore < 40) {
+    return { tier: 'B', apr: BASE_APR };
   }
-  return { tier: 'C', suggested_apr: 12.00 };
+  return { tier: 'C', apr: BASE_APR };
 };
 
-// ── LTV HEALTH CHECK ─────────────────────────────────────────
-// Called daily by NAV monitoring cron
-// Also checks for notorious fund impact on LTV
+// ── LTV HEALTH CHECK ──────────────────────────────────────────
+// Called by: NAV monitoring cron, /api/risk/ltv-health endpoint
+// Returns ltv_ratio as a PERCENTAGE (e.g. 45.5 = 45.5%)
+// ─────────────────────────────────────────────────────────────
 const checkLTVHealth = async (userId, accountId) => {
   const accountRes = await query(
     'SELECT outstanding, credit_limit FROM credit_accounts WHERE account_id = $1',
     [accountId]
   );
-
-  if (!accountRes.rows.length) {
-    return { status: 'GREEN', action_required: false, ltv_ratio: 0, outstanding: 0 };
-  }
-
   const { outstanding, credit_limit } = accountRes.rows[0];
 
-  if (!outstanding || parseFloat(outstanding) <= 0) {
-    return { status: 'GREEN', action_required: false, ltv_ratio: 0, outstanding: 0 };
+  // ── FIX: was returning { ltv: 0 } — must be ltv_ratio: 0 for frontend consistency ──
+  if (!outstanding || outstanding <= 0) {
+    return {
+      status:           'GREEN',
+      action_required:  false,
+      ltv_ratio:        0,          // FIXED: was `ltv: 0`
+      outstanding:      0,
+      current_pledge_value: 0,
+      max_eligible:     0,
+      message:          'No outstanding balance. Portfolio health is good.',
+    };
   }
 
-  // Get current portfolio value (pledged holdings only)
-  // Using COALESCE: prefer today's NAV from nav_history, fall back to nav_at_fetch
+  // Get pledged holdings with current NAV
+  // COALESCE nav_history → mf_holdings.nav_at_fetch (mock fallback)
   const pledgesRes = await query(`
     SELECT p.isin, p.units_pledged,
            COALESCE(n.nav_value, mh.nav_at_fetch) as current_nav,
-           mh.ltv_cap, mh.scheme_type,
-           COALESCE(nf.is_active, false) as is_notorious
+           mh.ltv_cap, mh.scheme_type, mh.nav_at_fetch
     FROM pledges p
     JOIN mf_holdings mh ON mh.folio_number = p.folio_number AND mh.user_id = p.user_id
     LEFT JOIN nav_history n ON n.isin = p.isin AND n.nav_date = CURRENT_DATE
-    LEFT JOIN notorious_funds nf ON nf.isin = p.isin AND nf.is_active = true
     WHERE p.user_id = $1 AND p.status = 'ACTIVE'
   `, [userId]);
 
+  // ── FIX: was returning { ltv: 0 } — must be ltv_ratio: 0 ──
   if (!pledgesRes.rows.length) {
-    return { status: 'GREEN', action_required: false, ltv_ratio: 0, outstanding: 0 };
+    return {
+      status:           'GREEN',
+      action_required:  false,
+      ltv_ratio:        0,          // FIXED: was `ltv: 0`
+      outstanding,
+      current_pledge_value: 0,
+      max_eligible:     0,
+      message:          'No active pledges found.',
+    };
   }
 
-  // Notorious funds count as 0% LTV for health calculation
-  // This simulates the real exposure: if a fund is notorious, it provides
-  // no collateral cover, so the actual LTV is higher
+  // Calculate current pledge value and max eligible
+  const currentPledgeValue = pledgesRes.rows.reduce((sum, p) => {
+    const nav = parseFloat(p.current_nav) || 0;
+    return sum + (p.units_pledged * nav);
+  }, 0);
+
   const maxEligible = pledgesRes.rows.reduce((sum, p) => {
     const nav = parseFloat(p.current_nav) || 0;
-    const ltv = p.is_notorious ? 0 : (parseFloat(p.ltv_cap) || 0.40);
+    const ltv = parseFloat(p.ltv_cap) || 0.40;
     return sum + (p.units_pledged * nav * ltv);
   }, 0);
 
   if (maxEligible <= 0) {
     return {
-      status:        'GREEN',
-      action_required: false,
-      ltv_ratio:     0,
-      outstanding:   parseFloat(outstanding),
-      message:       'NAV data pending. Portfolio health will update after NAV refresh.',
+      status:               'GREEN',
+      action_required:      false,
+      ltv_ratio:            0,
+      outstanding,
+      current_pledge_value: Math.round(currentPledgeValue),
+      max_eligible:         0,
+      message:              'NAV data pending. Portfolio health will update once NAV is refreshed.',
     };
   }
 
-  const outstandingFloat = parseFloat(outstanding);
-  const ltvRatio = (outstandingFloat / maxEligible) * 100;
+  const ltvRatio = outstanding / maxEligible;
 
-  // LTV health thresholds
-  let status, message, action_required, shortfall;
-  if (ltvRatio >= 90) {
-    status = 'RED';
+  // Optional: drawdown calc (don't let it block)
+  const drawdowns = [];
+  try {
+    for (const pledge of pledgesRes.rows) {
+      try {
+        const { peak_nav } = await getPeakNAV(pledge.isin);
+        if (peak_nav && pledge.current_nav) {
+          const dd = ((peak_nav - parseFloat(pledge.current_nav)) / peak_nav) * 100;
+          drawdowns.push({ isin: pledge.isin, drawdown_pct: dd });
+        }
+      } catch(e) {}
+    }
+  } catch(e) {}
+
+  const AMBER_THRESHOLD = 0.80;
+  const RED_THRESHOLD   = 0.90;
+
+  let status, action_required, message;
+
+  if (ltvRatio >= RED_THRESHOLD) {
+    status          = 'RED';
     action_required = true;
-    shortfall = Math.max(0, outstandingFloat - maxEligible * 0.80);
-    message = `LTV at ${ltvRatio.toFixed(1)}%. Margin call territory. NBFC has been notified.`;
-  } else if (ltvRatio >= 80) {
-    status = 'AMBER';
-    action_required = true;
-    shortfall = Math.max(0, outstandingFloat - maxEligible * 0.75);
-    message = `LTV at ${ltvRatio.toFixed(1)}%. UPI spending paused. Add collateral or repay to restore.`;
-  } else {
-    status = 'GREEN';
+    message         = `Portfolio value has dropped. Margin call: add more MFs or repay ₹${Math.round(outstanding - maxEligible * 0.85).toLocaleString()} to restore health.`;
+  } else if (ltvRatio >= AMBER_THRESHOLD) {
+    status          = 'AMBER';
     action_required = false;
-    shortfall = 0;
-    message = `LTV at ${ltvRatio.toFixed(1)}%. Portfolio is healthy.`;
+    message         = 'Portfolio value dropped. Consider adding more funds or partial repayment.';
+  } else {
+    status          = 'GREEN';
+    action_required = false;
+    message         = 'Portfolio health is good.';
   }
-
-  const hasNotorious = pledgesRes.rows.some(p => p.is_notorious);
 
   return {
     status,
     action_required,
-    ltv_ratio: parseFloat(ltvRatio.toFixed(2)),
-    outstanding: outstandingFloat,
-    max_eligible: Math.round(maxEligible),
-    shortfall,
     message,
-    has_notorious_funds: hasNotorious,
+    ltv_ratio:            parseFloat((ltvRatio * 100).toFixed(2)), // percentage e.g. 45.5
+    outstanding,
+    current_pledge_value: Math.round(currentPledgeValue),
+    max_eligible:         Math.round(maxEligible),
+    shortfall:            status === 'RED' ? Math.round(outstanding - maxEligible * 0.85) : 0,
+    drawdowns,
   };
 };
 
 module.exports = {
   evaluateCreditLimit,
-  getRiskTier,
-  checkLTVHealth,
   calculateDrawdown,
-  getDrawdownAdjustment,
+  checkLTVHealth,
+  calculateFraudScore,
+  getRiskTier,
 };

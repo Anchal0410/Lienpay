@@ -24,12 +24,23 @@ const STEPS = [
   { id: 'CREDIT',    title: 'Activate Credit',  icon: '✨', sub: 'Go live' },
 ]
 
+// ── FIX: Map backend onboarding_step values → internal step ───
+// Backend values: 'PAN_ENTRY', 'PORTFOLIO_LINKED', 'PLEDGE', 'CREDIT_SANCTIONED', etc.
+const mapBackendStepToInternal = (backendStep) => {
+  if (!backendStep) return 'KYC'
+  const s = backendStep.toUpperCase()
+  if (s.includes('PORTFOLIO') || s.includes('RISK') || s === 'PORTFOLIO_LINKED') return 'PORTFOLIO'
+  if (s.includes('PLEDGE') && !s.includes('CREDIT')) return 'PLEDGE'
+  if (s.includes('CREDIT') || s.includes('SANCTION') || s.includes('KFS')) return 'CREDIT'
+  // PAN_ENTRY, KYC, AML, BUREAU, AUTH, or any unknown → start at KYC
+  return 'KYC'
+}
+
 const fmtL = (n) => {
   const v = parseFloat(n || 0)
   return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 }
 
-// CTA button
 const CTA = ({ onClick, loading, label, disabled }) => (
   <motion.button
     whileTap={{ scale: 0.97 }}
@@ -53,7 +64,6 @@ const CTA = ({ onClick, loading, label, disabled }) => (
   </motion.button>
 )
 
-// Input field
 const Field = ({ label, id, value, onChange, placeholder, type = 'text', maxLength }) => (
   <div style={{ marginBottom: 16 }}>
     <label htmlFor={id} style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>
@@ -75,26 +85,29 @@ const Field = ({ label, id, value, onChange, placeholder, type = 'text', maxLeng
 )
 
 export default function Onboarding({ onComplete }) {
-  const { setOnboardingStep } = useStore()
-  const [currentStep, setCurrentStep] = useState('KYC')
+  const { onboardingStep, setOnboardingStep } = useStore()
+
+  // ── FIX: resume from wherever the user was ─────────────────
+  const resumeStep = mapBackendStepToInternal(onboardingStep)
+  const [currentStep, setCurrentStep] = useState(resumeStep)
   const [subStep, setSubStep]         = useState(0)
   const [loading, setLoading]         = useState(false)
 
-  // KYC
+  // KYC state
   const [pan, setPan]               = useState('')
   const [fullName, setFullName]     = useState('')
   const [dob, setDob]               = useState('')
   const [aadhaarTxn, setAadhaarTxn] = useState('')
   const [aadhaarOTP, setAadhaarOTP] = useState('')
 
-  // Portfolio
+  // Portfolio state
   const [portfolioData, setPortfolioData] = useState(null)
   const [riskData, setRiskData]           = useState(null)
   const [holdings, setHoldings]           = useState([])
   const [selectedFolios, setSelectedFolios] = useState([])
   const [ltvOverrides, setLtvOverrides]     = useState({})
 
-  // Pledge
+  // Pledge state
   const [pledges, setPledges] = useState([])
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep)
@@ -116,13 +129,13 @@ export default function Onboarding({ onComplete }) {
     const num = parseFloat(raw || 0)
     return num > 1 ? num / 100 : num
   }
-  const calcEligible = (h) => Math.round(parseFloat(h.current_value || h.eligible_credit || 0) || Math.round(parseFloat(h.current_value || 0) * parseLtv(h)))
-  const formatLtvPct = (h) => `${(parseLtv(h) * 100).toFixed(0)}%`
+  const calcEligible  = (h) => Math.round(parseFloat(h.eligible_credit || 0) || Math.round(parseFloat(h.current_value || 0) * parseLtv(h)))
+  const formatLtvPct  = (h) => `${(parseLtv(h) * 100).toFixed(0)}%`
 
   const selectedEligible = holdings.filter(h => selectedFolios.includes(h.folio_number) && h.is_eligible)
   const selectedCredit   = selectedEligible.reduce((s, h) => s + calcEligible(h), 0)
 
-  // ── KYC ───────────────────────────────────────────────────────
+  // ── KYC ────────────────────────────────────────────────────
   const handleKYCProfile = async () => {
     if (!pan || !fullName || !dob) return toast.error('Fill all fields')
     setLoading(true)
@@ -131,15 +144,14 @@ export default function Onboarding({ onComplete }) {
       const res = await sendAadhaarOTP({ aadhaar_last4: '3421', consent_given: 'true' })
       setAadhaarTxn(res.data.txn_id)
 
-      // ── FIX: auto-fill Aadhaar OTP in dev/mock mode ──────────
+      // ── FIX: auto-fill dev OTP ─────────────────────────────
       const devOtp = res.data?.dev_otp || res.data?.otp
       if (devOtp) {
         setAadhaarOTP(String(devOtp))
-        toast.success(`PAN verified! Aadhaar OTP: ${devOtp} (auto-filled)`)
+        toast.success(`PAN verified! Aadhaar OTP: ${devOtp} (dev mode — auto-filled)`)
       } else {
         toast.success('PAN verified! OTP sent to Aadhaar-linked mobile.')
       }
-
       setSubStep(1)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
@@ -159,7 +171,7 @@ export default function Onboarding({ onComplete }) {
     finally { setLoading(false) }
   }
 
-  // ── PORTFOLIO ─────────────────────────────────────────────────
+  // ── PORTFOLIO ───────────────────────────────────────────────
   const handleLinkPortfolio = async () => {
     setLoading(true)
     try {
@@ -168,11 +180,11 @@ export default function Onboarding({ onComplete }) {
       const riskRes      = await evaluateRisk()
       setPortfolioData(portfolioRes.data)
       setRiskData(riskRes.data)
-      const fetchedHoldings = portfolioRes.data.holdings || []
-      setHoldings(fetchedHoldings)
-      setSelectedFolios(fetchedHoldings.filter(h => h.is_eligible).map(h => h.folio_number))
+      const fetched = portfolioRes.data.holdings || []
+      setHoldings(fetched)
+      setSelectedFolios(fetched.filter(h => h.is_eligible).map(h => h.folio_number))
       setSubStep(1)
-      toast.success(`${portfolioRes.data.eligible_funds || fetchedHoldings.filter(h => h.is_eligible).length} eligible funds found!`)
+      toast.success(`${portfolioRes.data.eligible_funds || fetched.filter(h => h.is_eligible).length} eligible funds found!`)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
@@ -183,7 +195,7 @@ export default function Onboarding({ onComplete }) {
     )
   }
 
-  // ── PLEDGE ────────────────────────────────────────────────────
+  // ── PLEDGE ──────────────────────────────────────────────────
   const handleInitiatePledge = async () => {
     if (selectedFolios.length === 0) return toast.error('Select at least one fund')
     setLoading(true)
@@ -215,7 +227,7 @@ export default function Onboarding({ onComplete }) {
     finally { setLoading(false) }
   }
 
-  // ── CREDIT ────────────────────────────────────────────────────
+  // ── CREDIT ──────────────────────────────────────────────────
   const handleActivateCredit = async () => {
     setLoading(true)
     try {
@@ -225,7 +237,6 @@ export default function Onboarding({ onComplete }) {
       await activateCredit()
       await setupPIN()
       toast.success('🎉 Credit line is live!')
-
       // ── FIX: MUST set onboardingStep so App.jsx routes to main app ──
       setOnboardingStep('ACTIVE')
       if (onComplete) onComplete()
@@ -233,9 +244,9 @@ export default function Onboarding({ onComplete }) {
     finally { setLoading(false) }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────────
+  // ── RESUME BANNER ───────────────────────────────────────────
+  const isResuming = resumeStep !== 'KYC' && onboardingStep && onboardingStep !== 'AUTH'
+
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-void)', overflow: 'hidden' }}>
       <LiquidBlob size={250} color="var(--jade)" top="-60px" left="-40px" />
@@ -243,12 +254,24 @@ export default function Onboarding({ onComplete }) {
 
       <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: '20px 20px 40px', paddingTop: 'calc(20px + env(safe-area-inset-top))' }}>
 
-        {/* Step indicator */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 28 }}>
+        {/* Step progress */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: isResuming ? 10 : 28 }}>
           {STEPS.map((s, i) => (
-            <div key={s.id} style={{ flex: 1, height: 3, borderRadius: 2, background: i < stepIndex ? 'var(--jade)' : i === stepIndex ? 'var(--jade)' : 'var(--bg-elevated)', opacity: i <= stepIndex ? 1 : 0.4 }} />
+            <div key={s.id} style={{ flex: 1, height: 3, borderRadius: 2, background: i <= stepIndex ? 'var(--jade)' : 'var(--bg-elevated)', opacity: i <= stepIndex ? 1 : 0.4, transition: 'all 0.4s' }} />
           ))}
         </div>
+
+        {/* Resume banner */}
+        {isResuming && (
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+            style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 14 }}>↩️</span>
+            <div>
+              <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--jade)' }}>Resuming from {STEPS[stepIndex]?.title}</p>
+              <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>Your previous progress has been saved</p>
+            </div>
+          </motion.div>
+        )}
 
         {/* Step header */}
         <motion.div key={currentStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} style={{ marginBottom: 24 }}>
@@ -283,11 +306,9 @@ export default function Onboarding({ onComplete }) {
                 <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Aadhaar OTP sent to your registered mobile</p>
               </div>
               <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>
-                  AADHAAR OTP
-                </label>
+                <label style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>AADHAAR OTP</label>
                 <input
-                  id="aadhaar-otp" name="aadhaar-otp" type="tel" inputMode="numeric" maxLength={6}
+                  id="aadhaar-otp" type="tel" inputMode="numeric" maxLength={6}
                   value={aadhaarOTP}
                   onChange={e => setAadhaarOTP(e.target.value.replace(/\D/g, '').slice(0, 6))}
                   placeholder="6-digit OTP"
@@ -295,9 +316,7 @@ export default function Onboarding({ onComplete }) {
                   style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: `1px solid ${aadhaarOTP.length === 6 ? 'var(--jade)' : 'var(--border-light)'}`, fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.3em', textAlign: 'center' }}
                 />
               </div>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20 }}>
-                Dev mode: check server logs or auto-filled above
-              </p>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20 }}>Dev mode: check server logs or auto-filled above</p>
               <CTA onClick={handleAadhaarVerify} loading={loading} label="Complete KYC →" disabled={aadhaarOTP.length !== 6} />
             </motion.div>
           )}
@@ -311,11 +330,10 @@ export default function Onboarding({ onComplete }) {
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
                   We'll securely fetch your holdings via Account Aggregator and calculate your eligible credit limit.
                 </p>
-                {/* ── Dev mode note ── */}
                 <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '10px 14px' }}>
                   <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 600, marginBottom: 2 }}>🧪 Dev / Demo Mode</p>
                   <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Mock AA fetch active. Pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible MF schemes</strong> — real ISINs, live NAVs, correct LTV caps.
+                    Mock AA fetch active — pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible MF schemes</strong>. Real ISINs, live NAVs, correct LTV caps per SEBI category.
                   </p>
                 </div>
               </div>
@@ -363,8 +381,6 @@ export default function Onboarding({ onComplete }) {
                     </motion.div>
                   )
                 })}
-
-                {/* Ineligible funds — collapsed, with reason */}
                 {holdings.filter(h => !h.is_eligible).length > 0 && (
                   <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px', opacity: 0.5 }}>
                     <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{holdings.filter(h => !h.is_eligible).length} fund(s) not eligible</p>
@@ -377,17 +393,12 @@ export default function Onboarding({ onComplete }) {
             </motion.div>
           )}
 
-          {/* ── PLEDGE 0: Confirm selection ── */}
+          {/* ── PLEDGE 0: What happens + all funds ── */}
           {currentStep === 'PLEDGE' && subStep === 0 && (
             <motion.div key="pledge0" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', marginBottom: 16 }}>
-                <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 12, color: 'var(--text-primary)' }}>What happens when you pledge?</p>
-                {[
-                  'Your MF units are lien-marked — not sold',
-                  'Your investments keep growing as collateral',
-                  'MF Central manages the pledge securely',
-                  'Release anytime by closing your credit line',
-                ].map((item, i) => (
+                <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>What happens when you pledge?</p>
+                {['Your MF units are lien-marked — not sold', 'Your investments keep growing as collateral', 'MF Central manages the pledge securely', 'Release anytime by closing your credit line'].map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
                     <span style={{ color: 'var(--jade)', fontSize: 13, flexShrink: 0 }}>✓</span>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item}</p>
@@ -395,31 +406,30 @@ export default function Onboarding({ onComplete }) {
                 ))}
               </div>
 
-              {/* ── FIX: Show ALL selected funds, no truncation ── */}
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>FUNDS TO BE PLEDGED ({selectedFolios.length})</p>
+              {/* ── FIX: Show ALL selected funds — no "+N more" truncation ── */}
+              <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                FUNDS TO BE PLEDGED ({selectedFolios.length})
+              </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                {holdings.filter(h => selectedFolios.includes(h.folio_number)).map((h, i) => {
-                  const eligible = calcEligible(h)
-                  return (
-                    <motion.div key={h.folio_number}
-                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                      style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                            {h.rta === 'CAMS' ? 'MF CENTRAL' : 'KFINTECH'} · {h.scheme_type?.replace(/_/g, ' ')}
-                          </p>
-                          <p style={{ fontSize: 13, fontWeight: 600 }}>{h.scheme_name}</p>
-                        </div>
-                        <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 12 }}>
-                          <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>{fmtL(h.current_value || 0)}</p>
-                          <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatLtvPct(h)} LTV</p>
-                          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtL(eligible)} eligible</p>
-                        </div>
+                {holdings.filter(h => selectedFolios.includes(h.folio_number)).map((h, i) => (
+                  <motion.div key={h.folio_number}
+                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
+                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
+                          {h.rta === 'CAMS' ? 'MF CENTRAL' : 'KFINTECH'} · {h.scheme_type?.replace(/_/g, ' ')}
+                        </p>
+                        <p style={{ fontSize: 13, fontWeight: 600 }}>{h.scheme_name}</p>
                       </div>
-                    </motion.div>
-                  )
-                })}
+                      <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 12 }}>
+                        <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>{fmtL(h.current_value || 0)}</p>
+                        <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatLtvPct(h)} LTV</p>
+                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtL(calcEligible(h))} eligible</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
 
               <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '14px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -431,11 +441,11 @@ export default function Onboarding({ onComplete }) {
             </motion.div>
           )}
 
-          {/* ── PLEDGE 1: OTP confirmation ── */}
+          {/* ── PLEDGE 1: OTP confirm ── */}
           {currentStep === 'PLEDGE' && subStep === 1 && (
             <motion.div key="pledge1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
-                Pledge OTPs have been sent to your registered mobile by CAMS/KFintech. In dev mode these are auto-confirmed.
+                Pledge OTPs sent by CAMS/KFintech to your registered mobile. Dev mode: auto-confirmed below.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {pledges.map((p, i) => (
@@ -444,7 +454,7 @@ export default function Onboarding({ onComplete }) {
                       <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{p.scheme_name || `Fund ${i + 1}`}</p>
                       <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.rta} · OTP: {p.rta === 'CAMS' ? '123456' : '654321'}</p>
                     </div>
-                    <span style={{ fontSize: 18, color: 'var(--jade)' }}>🔒</span>
+                    <span style={{ fontSize: 18 }}>🔒</span>
                   </div>
                 ))}
               </div>
@@ -458,7 +468,7 @@ export default function Onboarding({ onComplete }) {
               <div style={{ background: 'linear-gradient(135deg, var(--jade-dim), rgba(0,212,161,0.03))', border: '1px solid var(--jade-border)', borderRadius: 20, padding: '28px 20px', textAlign: 'center', marginBottom: 20 }}>
                 <motion.div animate={{ scale: [1, 1.08, 1] }} transition={{ duration: 2, repeat: Infinity }} style={{ fontSize: 56, marginBottom: 16 }}>✨</motion.div>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 400, color: 'var(--jade)', marginBottom: 6 }}>
-                  {fmtL(selectedCredit)}
+                  {fmtL(selectedCredit || riskData?.approved_limit || 0)}
                 </p>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Credit limit ready to activate</p>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
@@ -467,14 +477,12 @@ export default function Onboarding({ onComplete }) {
                   ))}
                 </div>
               </div>
-
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
                 <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 8 }}>By activating you agree to:</p>
                 {['Key Fact Statement (KFS) terms', '3-day cooling-off period starts now', 'RBI Digital Lending Guidelines compliance', 'Pledge terms with MF Central / KFintech'].map((t, i) => (
                   <p key={i} style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>· {t}</p>
                 ))}
               </div>
-
               <CTA onClick={handleActivateCredit} loading={loading} label="Activate Credit Line →" />
             </motion.div>
           )}
