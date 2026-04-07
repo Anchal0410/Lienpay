@@ -12,6 +12,7 @@ import Billing    from './screens/Billing'
 import Profile    from './screens/Profile'
 import Settings   from './screens/Settings'
 import NavBar     from './components/NavBar'
+import { RiskStateProvider } from './contexts/RiskStateContext'
 
 const pageVariants = {
   initial: { opacity: 0, y: 8 },
@@ -28,8 +29,8 @@ export default function App() {
   const isAuthenticated = !!token
   const isOnboarded     = onboardingStep === 'ACTIVE' || onboardingStep === 'COMPLETE'
 
-  const handleSplashComplete = () => setShowSplash(false)
-  const handleAuthComplete   = () => {}
+  const handleSplashComplete  = () => setShowSplash(false)
+  const handleAuthComplete    = () => {}
   const handleOnboardComplete = () => {}
 
   // Active screen content
@@ -50,12 +51,12 @@ export default function App() {
         position="top-center"
         toastOptions={{
           style: {
-            background:  '#1A1A24',
-            color:       '#F0F0F5',
-            border:      '1px solid rgba(255,255,255,0.08)',
+            background:   '#1A1A24',
+            color:        '#F0F0F5',
+            border:       '1px solid rgba(255,255,255,0.08)',
             borderRadius: 12,
-            fontSize:    14,
-            fontFamily:  'Outfit, sans-serif',
+            fontSize:     14,
+            fontFamily:   'Outfit, sans-serif',
           },
           success: { iconTheme: { primary: '#00C896', secondary: '#000' } },
           error:   { iconTheme: { primary: '#EF4444', secondary: '#fff' } },
@@ -91,22 +92,24 @@ export default function App() {
             </motion.div>
           )}
 
-          {/* Fully onboarded — main app */}
+          {/* Fully onboarded — main app wrapped in RiskStateProvider */}
           {isAuthenticated && isOnboarded && (
             <motion.div key="app" {...pageVariants} style={{ position: 'fixed', inset: 0 }}>
-              {/* Tab content */}
-              <AnimatePresence mode="wait">
-                {renderActiveTab()}
-              </AnimatePresence>
+              <RiskStateProvider>
+                {/* Tab content */}
+                <AnimatePresence mode="wait">
+                  {renderActiveTab()}
+                </AnimatePresence>
 
-              {/* Bottom nav */}
-              {!showPay && <NavBar />}
+                {/* Bottom nav */}
+                {!showPay && <NavBar />}
+              </RiskStateProvider>
             </motion.div>
           )}
         </AnimatePresence>
       )}
 
-      {/* Pay overlay */}
+      {/* Pay overlay — outside RiskStateProvider intentionally (full screen modal) */}
       <AnimatePresence>
         {showPay && isAuthenticated && isOnboarded && (
           <motion.div
