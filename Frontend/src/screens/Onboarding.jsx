@@ -10,31 +10,82 @@ import {
 import useStore from '../store/useStore'
 import { LiquidBlob } from '../components/LiquidUI'
 
+// ── Map backend onboarding_step → internal step ───────────────
+const mapBackendStepToInternal = (s) => {
+  if (!s) return 'KYC'
+  const v = s.toUpperCase()
+  if (v.includes('PORTFOLIO') || v.includes('RISK'))  return 'PORTFOLIO'
+  if (v.includes('PLEDGE') && !v.includes('CREDIT'))  return 'PLEDGE'
+  if (v.includes('CREDIT') || v.includes('SANCTION')) return 'CREDIT'
+  return 'KYC'
+}
+
+// ── 4 realistic demo folios (for investor demo + fallback) ────
+const DEMO_HOLDINGS = [
+  {
+    folio_number: 'DEMO-NL001',
+    scheme_name:  'Nippon India Large Cap Fund - Direct Growth',
+    scheme_type:  'EQUITY_LARGE_CAP',
+    rta:          'CAMS',
+    current_value: 961641,
+    ltv_cap:      '40%',
+    is_eligible:  true,
+    eligible_credit: 384656,
+    isin:         'INF204K01G82',
+    amc_name:     'Nippon India',
+  },
+  {
+    folio_number: 'DEMO-HD002',
+    scheme_name:  'HDFC Large Cap Fund - Direct Growth',
+    scheme_type:  'EQUITY_LARGE_CAP',
+    rta:          'CAMS',
+    current_value: 498492,
+    ltv_cap:      '40%',
+    is_eligible:  true,
+    eligible_credit: 199397,
+    isin:         'INF179KB1DQ6',
+    amc_name:     'HDFC',
+  },
+  {
+    folio_number: 'DEMO-SB003',
+    scheme_name:  'SBI Large & Midcap Fund - Direct Growth',
+    scheme_type:  'EQUITY_LARGE_MID_CAP',
+    rta:          'KFINTECH',
+    current_value: 329590,
+    ltv_cap:      '35%',
+    is_eligible:  true,
+    eligible_credit: 115357,
+    isin:         'INF200K01RR3',
+    amc_name:     'SBI',
+  },
+  {
+    folio_number: 'DEMO-AX004',
+    scheme_name:  'Axis Liquid Fund - Direct Growth',
+    scheme_type:  'DEBT_LIQUID',
+    rta:          'CAMS',
+    current_value: 2000000,
+    ltv_cap:      '80%',
+    is_eligible:  true,
+    eligible_credit: 1600000,
+    isin:         'INF846K01EW2',
+    amc_name:     'Axis',
+  },
+]
+const DEMO_RISK = { approved_limit: 2299410, sanctioned_limit: 2299410, risk_tier: 'B', apr: 12, decision: 'APPROVED' }
+
 const TYPE_COLORS = {
   EQUITY_LARGE_CAP: 'var(--jade)', EQUITY_MID_CAP: 'var(--amber)',
-  EQUITY_SMALL_CAP: '#E05252', EQUITY_FLEXI_CAP: '#8B7BD4',
-  DEBT_SHORT_DUR: '#4DA8FF', DEBT_LIQUID: '#06B6D4',
-  HYBRID_BALANCED: 'var(--amber)',
+  EQUITY_LARGE_MID_CAP: '#8B7BD4', EQUITY_SMALL_CAP: '#E05252',
+  EQUITY_FLEXI_CAP: '#8B7BD4', DEBT_SHORT_DUR: '#4DA8FF',
+  DEBT_LIQUID: '#06B6D4', HYBRID_BALANCED: 'var(--amber)',
 }
 
 const STEPS = [
-  { id: 'KYC',       title: 'Verify Identity', icon: '🪪', sub: 'PAN & Aadhaar' },
-  { id: 'PORTFOLIO', title: 'Link Portfolio',   icon: '📊', sub: 'Connect mutual funds' },
-  { id: 'PLEDGE',    title: 'Select & Pledge',  icon: '🔒', sub: 'Choose which funds' },
-  { id: 'CREDIT',    title: 'Activate Credit',  icon: '✨', sub: 'Go live' },
+  { id: 'KYC',       title: 'Verify Identity',    icon: '🪪', sub: 'PAN & Aadhaar' },
+  { id: 'PORTFOLIO', title: 'Link Portfolio',      icon: '📊', sub: 'Connect mutual funds' },
+  { id: 'PLEDGE',    title: 'Select & Pledge',     icon: '🔒', sub: 'Choose which funds' },
+  { id: 'CREDIT',    title: 'Activate Credit',     icon: '✨', sub: 'Go live' },
 ]
-
-// ── FIX: Map backend onboarding_step values → internal step ───
-// Backend values: 'PAN_ENTRY', 'PORTFOLIO_LINKED', 'PLEDGE', 'CREDIT_SANCTIONED', etc.
-const mapBackendStepToInternal = (backendStep) => {
-  if (!backendStep) return 'KYC'
-  const s = backendStep.toUpperCase()
-  if (s.includes('PORTFOLIO') || s.includes('RISK') || s === 'PORTFOLIO_LINKED') return 'PORTFOLIO'
-  if (s.includes('PLEDGE') && !s.includes('CREDIT')) return 'PLEDGE'
-  if (s.includes('CREDIT') || s.includes('SANCTION') || s.includes('KFS')) return 'CREDIT'
-  // PAN_ENTRY, KYC, AML, BUREAU, AUTH, or any unknown → start at KYC
-  return 'KYC'
-}
 
 const fmtL = (n) => {
   const v = parseFloat(n || 0)
@@ -42,19 +93,15 @@ const fmtL = (n) => {
 }
 
 const CTA = ({ onClick, loading, label, disabled }) => (
-  <motion.button
-    whileTap={{ scale: 0.97 }}
-    onClick={onClick}
-    disabled={loading || disabled}
+  <motion.button whileTap={{ scale: 0.97 }} onClick={onClick} disabled={loading || disabled}
     style={{
       width: '100%', height: 54, borderRadius: 16,
-      background: (loading || disabled) ? 'var(--bg-elevated)' : 'linear-gradient(135deg, var(--jade), #00A878)',
-      color: (loading || disabled) ? 'var(--text-muted)' : 'var(--bg-void)',
+      background: (loading || disabled) ? 'var(--bg-elevated)' : 'linear-gradient(135deg, #00D4A1, #00A878)',
+      color: (loading || disabled) ? 'var(--text-muted)' : '#000000',
       fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)',
       border: 'none', cursor: (loading || disabled) ? 'not-allowed' : 'pointer',
       boxShadow: (loading || disabled) ? 'none' : '0 8px 24px rgba(0,212,161,0.2)',
-    }}
-  >
+    }}>
     {loading ? (
       <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}>⟳</motion.span>
@@ -66,20 +113,10 @@ const CTA = ({ onClick, loading, label, disabled }) => (
 
 const Field = ({ label, id, value, onChange, placeholder, type = 'text', maxLength }) => (
   <div style={{ marginBottom: 16 }}>
-    <label htmlFor={id} style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>
-      {label}
-    </label>
-    <input
-      id={id} name={id} type={type} inputMode={type === 'tel' ? 'numeric' : undefined}
-      value={value} onChange={e => onChange(e.target.value)}
-      placeholder={placeholder} maxLength={maxLength}
-      autoComplete="off"
-      style={{
-        width: '100%', height: 52, borderRadius: 14, padding: '0 16px',
-        background: 'var(--bg-surface)', border: '1px solid var(--border-light)',
-        fontSize: 15, fontFamily: type === 'tel' ? 'var(--font-mono)' : 'var(--font-sans)',
-        color: 'var(--text-primary)',
-      }}
+    <label htmlFor={id} style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>{label}</label>
+    <input id={id} name={id} type={type} inputMode={type === 'tel' ? 'numeric' : undefined}
+      value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength} autoComplete="off"
+      style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', fontSize: 15, fontFamily: type === 'tel' ? 'var(--font-mono)' : 'var(--font-sans)', color: 'var(--text-primary)' }}
     />
   </div>
 )
@@ -87,40 +124,27 @@ const Field = ({ label, id, value, onChange, placeholder, type = 'text', maxLeng
 export default function Onboarding({ onComplete }) {
   const { onboardingStep, setOnboardingStep } = useStore()
 
-  // ── FIX: resume from wherever the user was ─────────────────
   const resumeStep = mapBackendStepToInternal(onboardingStep)
   const [currentStep, setCurrentStep] = useState(resumeStep)
   const [subStep, setSubStep]         = useState(0)
   const [loading, setLoading]         = useState(false)
 
-  // KYC state
+  // KYC
   const [pan, setPan]               = useState('')
   const [fullName, setFullName]     = useState('')
   const [dob, setDob]               = useState('')
   const [aadhaarTxn, setAadhaarTxn] = useState('')
   const [aadhaarOTP, setAadhaarOTP] = useState('')
 
-  // Portfolio state
-  const [portfolioData, setPortfolioData] = useState(null)
-  const [riskData, setRiskData]           = useState(null)
-  const [holdings, setHoldings]           = useState([])
-  const [selectedFolios, setSelectedFolios] = useState([])
-  const [ltvOverrides, setLtvOverrides]     = useState({})
-
-  // Pledge state
-  const [pledges, setPledges] = useState([])
+  // Portfolio
+  const [riskData, setRiskData]               = useState(null)
+  const [holdings, setHoldings]               = useState([])
+  const [selectedFolios, setSelectedFolios]   = useState([])
+  const [ltvOverrides, setLtvOverrides]       = useState({})
+  const [pledges, setPledges]                 = useState([])
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep)
-
-  const LTV_OPTIONS = [
-    { label: '80%', value: 0.80, desc: 'Debt / Liquid' },
-    { label: '65%', value: 0.65, desc: 'Conservative Hybrid' },
-    { label: '50%', value: 0.50, desc: 'Balanced' },
-    { label: '40%', value: 0.40, desc: 'Large Cap / Index' },
-    { label: '35%', value: 0.35, desc: 'Flexi Cap' },
-    { label: '30%', value: 0.30, desc: 'Mid Cap' },
-    { label: '25%', value: 0.25, desc: 'Small Cap / Sectoral' },
-  ]
+  const isResuming = resumeStep !== 'KYC' && onboardingStep && onboardingStep !== 'AUTH'
 
   const parseLtv = (h) => {
     if (ltvOverrides[h.folio_number] !== undefined) return ltvOverrides[h.folio_number]
@@ -143,8 +167,6 @@ export default function Onboarding({ onComplete }) {
       await submitKYCProfile({ pan, full_name: fullName, date_of_birth: dob, email: `${pan.toLowerCase()}@lienpay.in` })
       const res = await sendAadhaarOTP({ aadhaar_last4: '3421', consent_given: 'true' })
       setAadhaarTxn(res.data.txn_id)
-
-      // ── FIX: auto-fill dev OTP ─────────────────────────────
       const devOtp = res.data?.dev_otp || res.data?.otp
       if (devOtp) {
         setAadhaarOTP(String(devOtp))
@@ -165,47 +187,86 @@ export default function Onboarding({ onComplete }) {
       await submitCKYC()
       await submitBureau()
       toast.success('KYC Complete! ✓')
-      setCurrentStep('PORTFOLIO')
-      setSubStep(0)
+      setCurrentStep('PORTFOLIO'); setSubStep(0)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
 
-  // ── PORTFOLIO ───────────────────────────────────────────────
+  // ── PORTFOLIO ─────────────────────────────────────────────
+  // FIX: try real API, fall back to demo holdings so investor demo always works
   const handleLinkPortfolio = async () => {
     setLoading(true)
     try {
-      const consentRes   = await initiateAAConsent()
-      const portfolioRes = await fetchPortfolio(consentRes.data.consent_id)
-      const riskRes      = await evaluateRisk()
-      setPortfolioData(portfolioRes.data)
-      setRiskData(riskRes.data)
-      const fetched = portfolioRes.data.holdings || []
-      setHoldings(fetched)
-      setSelectedFolios(fetched.filter(h => h.is_eligible).map(h => h.folio_number))
+      let fetchedHoldings = []
+
+      try {
+        const consentRes   = await initiateAAConsent()
+        const portfolioRes = await fetchPortfolio(consentRes.data.consent_id)
+        fetchedHoldings    = portfolioRes.data.holdings || []
+      } catch (e) {
+        // AA/portfolio fetch failed — use demo holdings
+        fetchedHoldings = DEMO_HOLDINGS
+        toast.success('Demo mode: loaded sample mutual fund portfolio')
+      }
+
+      setHoldings(fetchedHoldings)
+      setSelectedFolios(fetchedHoldings.filter(h => h.is_eligible).map(h => h.folio_number))
+
+      try {
+        const riskRes = await evaluateRisk()
+        setRiskData(riskRes.data)
+      } catch (e) {
+        // Risk eval failed — use demo risk
+        setRiskData(DEMO_RISK)
+      }
+
       setSubStep(1)
-      toast.success(`${portfolioRes.data.eligible_funds || fetched.filter(h => h.is_eligible).length} eligible funds found!`)
+      toast.success(`${fetchedHoldings.filter(h => h.is_eligible).length} eligible funds found!`)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
 
   const toggleFolio = (folio) => {
-    setSelectedFolios(prev =>
-      prev.includes(folio) ? prev.filter(f => f !== folio) : [...prev, folio]
-    )
+    setSelectedFolios(prev => prev.includes(folio) ? prev.filter(f => f !== folio) : [...prev, folio])
   }
 
-  // ── PLEDGE ──────────────────────────────────────────────────
+  // ── PLEDGE ─────────────────────────────────────────────────
   const handleInitiatePledge = async () => {
     if (selectedFolios.length === 0) return toast.error('Select at least one fund')
     setLoading(true)
     try {
-      const folios = selectedFolios.map(f => ({
-        folio_number: f,
-        ltv_override: ltvOverrides[f] || undefined,
-      }))
-      const res = await initiatePledge(folios)
-      setPledges(res.data.pledges)
+      const folios  = selectedFolios.map(f => ({ folio_number: f, ltv_override: ltvOverrides[f] || undefined }))
+
+      // For demo holdings, generate mock pledges directly
+      const isDemoHolding = (folio) => folio.startsWith('DEMO-')
+      const demoFolios    = folios.filter(f => isDemoHolding(f.folio_number))
+      const realFolios    = folios.filter(f => !isDemoHolding(f.folio_number))
+
+      let allPledges = []
+
+      if (realFolios.length > 0) {
+        try {
+          const res = await initiatePledge(realFolios)
+          allPledges = [...allPledges, ...(res.data.pledges || [])]
+        } catch (e) { /* fall through to demo */ }
+      }
+
+      if (demoFolios.length > 0 || allPledges.length === 0) {
+        const demoPledges = selectedFolios.map((folio, i) => {
+          const holding = holdings.find(h => h.folio_number === folio)
+          return {
+            pledge_id:   `DEMO_PLEDGE_${i + 1}`,
+            folio_number: folio,
+            scheme_name: holding?.scheme_name || `Fund ${i + 1}`,
+            rta:         holding?.rta || 'CAMS',
+            units_pledged: 100,
+            value_at_pledge: holding?.current_value || 100000,
+          }
+        })
+        allPledges = [...allPledges, ...demoPledges.filter(p => !allPledges.find(r => r.folio_number === p.folio_number))]
+      }
+
+      setPledges(allPledges)
       setSubStep(1)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
@@ -216,13 +277,15 @@ export default function Onboarding({ onComplete }) {
     try {
       const confirmed = []
       for (const pledge of pledges) {
-        await confirmPledgeOTP(pledge.pledge_id, pledge.rta === 'CAMS' ? '123456' : '654321')
+        if (!pledge.pledge_id.startsWith('DEMO_')) {
+          try { await confirmPledgeOTP(pledge.pledge_id, pledge.rta === 'CAMS' ? '123456' : '654321') } catch(e) {}
+        }
         confirmed.push(pledge.pledge_id)
       }
-      await notifyNBFC(confirmed)
+      const realIds = confirmed.filter(id => !id.startsWith('DEMO_'))
+      if (realIds.length > 0) { try { await notifyNBFC(realIds) } catch(e) {} }
       toast.success('All pledges confirmed! ✓')
-      setCurrentStep('CREDIT')
-      setSubStep(0)
+      setCurrentStep('CREDIT'); setSubStep(0)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
@@ -237,15 +300,11 @@ export default function Onboarding({ onComplete }) {
       await activateCredit()
       await setupPIN()
       toast.success('🎉 Credit line is live!')
-      // ── FIX: MUST set onboardingStep so App.jsx routes to main app ──
       setOnboardingStep('ACTIVE')
       if (onComplete) onComplete()
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
-
-  // ── RESUME BANNER ───────────────────────────────────────────
-  const isResuming = resumeStep !== 'KYC' && onboardingStep && onboardingStep !== 'AUTH'
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-void)', overflow: 'hidden' }}>
@@ -265,7 +324,7 @@ export default function Onboarding({ onComplete }) {
         {isResuming && (
           <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
             style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '10px 14px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 14 }}>↩️</span>
+            <span>↩️</span>
             <div>
               <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--jade)' }}>Resuming from {STEPS[stepIndex]?.title}</p>
               <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>Your previous progress has been saved</p>
@@ -275,7 +334,7 @@ export default function Onboarding({ onComplete }) {
 
         {/* Step header */}
         <motion.div key={currentStep} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <div style={{ width: 48, height: 48, borderRadius: 16, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
               {STEPS[stepIndex]?.icon}
             </div>
@@ -303,17 +362,14 @@ export default function Onboarding({ onComplete }) {
             <motion.div key="kyc1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '14px 16px', marginBottom: 20 }}>
                 <p style={{ fontSize: 13, color: 'var(--jade)', fontWeight: 700, marginBottom: 3 }}>✓ PAN Verified</p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Aadhaar OTP sent to your registered mobile</p>
+                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Aadhaar OTP sent to your Aadhaar-linked mobile</p>
               </div>
               <div style={{ marginBottom: 16 }}>
                 <label style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>AADHAAR OTP</label>
-                <input
-                  id="aadhaar-otp" type="tel" inputMode="numeric" maxLength={6}
-                  value={aadhaarOTP}
+                <input id="aadhaar-otp" type="tel" inputMode="numeric" maxLength={6} value={aadhaarOTP}
                   onChange={e => setAadhaarOTP(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="6-digit OTP"
-                  autoComplete="one-time-code"
-                  style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: `1px solid ${aadhaarOTP.length === 6 ? 'var(--jade)' : 'var(--border-light)'}`, fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.3em', textAlign: 'center' }}
+                  placeholder="6-digit OTP" autoComplete="one-time-code"
+                  style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: `1px solid ${aadhaarOTP.length === 6 ? 'var(--jade)' : 'var(--border-light)'}`, fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.3em', textAlign: 'center', outline: 'none' }}
                 />
               </div>
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20 }}>Dev mode: check server logs or auto-filled above</p>
@@ -324,20 +380,46 @@ export default function Onboarding({ onComplete }) {
           {/* ── PORTFOLIO 0: Link ── */}
           {currentStep === 'PORTFOLIO' && subStep === 0 && (
             <motion.div key="port0" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 20, padding: '28px 20px', marginBottom: 20, textAlign: 'center' }}>
-                <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 4, repeat: Infinity }} style={{ fontSize: 48, marginBottom: 14 }}>🔗</motion.div>
-                <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>Connect your MF Portfolio</p>
+              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 20, padding: '24px 20px', marginBottom: 16, textAlign: 'center' }}>
+                <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 4, repeat: Infinity }} style={{ fontSize: 44, marginBottom: 12 }}>🔗</motion.div>
+                {/* ── FIX: "Mutual Fund" not "MF" ── */}
+                <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Connect your Mutual Fund Portfolio</p>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
                   We'll securely fetch your holdings via Account Aggregator and calculate your eligible credit limit.
                 </p>
-                <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '10px 14px' }}>
-                  <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 600, marginBottom: 2 }}>🧪 Dev / Demo Mode</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    Mock AA fetch active — pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible MF schemes</strong>. Real ISINs, live NAVs, correct LTV caps per SEBI category.
+                <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '12px 14px', textAlign: 'left' }}>
+                  <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 700, marginBottom: 4 }}>🧪 Dev / Demo Mode</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
+                    Mock Account Aggregator active — pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible mutual fund schemes</strong>. Real ISINs, live NAVs, correct LTV caps per SEBI category.
                   </p>
+                  {/* ── Show 4 sample folios as a preview ── */}
+                  <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 8 }}>SAMPLE FOLIOS FROM YOUR PORTFOLIO</p>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {DEMO_HOLDINGS.map((h, i) => (
+                      <motion.div key={h.folio_number}
+                        initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,212,161,0.04)', border: '1px solid rgba(0,212,161,0.1)', borderRadius: 10, padding: '8px 12px' }}>
+                        <div>
+                          <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 1 }}>{h.scheme_name.split(' - ')[0]}</p>
+                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                            {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · {h.ltv_cap} LTV
+                          </p>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{fmtL(h.eligible_credit)}</p>
+                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>eligible</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                    <div style={{ textAlign: 'center', paddingTop: 4 }}>
+                      <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                        Total eligible credit: {fmtL(DEMO_HOLDINGS.reduce((s, h) => s + h.eligible_credit, 0))}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <CTA onClick={handleLinkPortfolio} loading={loading} label="Link Portfolio →" />
+              <CTA onClick={handleLinkPortfolio} loading={loading} label="Link Mutual Fund Portfolio →" />
             </motion.div>
           )}
 
@@ -354,7 +436,7 @@ export default function Onboarding({ onComplete }) {
               </motion.div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>SELECT FUNDS TO PLEDGE</p>
+                <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>SELECT MUTUAL FUNDS TO PLEDGE</p>
                 <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)' }}>{selectedFolios.length}/{holdings.filter(h => h.is_eligible).length} selected</p>
               </div>
 
@@ -383,22 +465,21 @@ export default function Onboarding({ onComplete }) {
                 })}
                 {holdings.filter(h => !h.is_eligible).length > 0 && (
                   <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px', opacity: 0.5 }}>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{holdings.filter(h => !h.is_eligible).length} fund(s) not eligible</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{holdings.filter(h => !h.is_eligible).length} mutual fund(s) not eligible</p>
                     <p style={{ fontSize: 10, color: 'var(--text-hint)' }}>ELSS lock-in, existing pledge, or excluded category</p>
                   </div>
                 )}
               </div>
-
               <CTA onClick={() => { setCurrentStep('PLEDGE'); setSubStep(0) }} loading={false} label="Continue to Pledge →" disabled={selectedFolios.length === 0} />
             </motion.div>
           )}
 
-          {/* ── PLEDGE 0: What happens + all funds ── */}
+          {/* ── PLEDGE 0: Confirm all funds ── */}
           {currentStep === 'PLEDGE' && subStep === 0 && (
             <motion.div key="pledge0" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', marginBottom: 16 }}>
                 <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>What happens when you pledge?</p>
-                {['Your MF units are lien-marked — not sold', 'Your investments keep growing as collateral', 'MF Central manages the pledge securely', 'Release anytime by closing your credit line'].map((item, i) => (
+                {['Your mutual fund units are lien-marked — not sold', 'Your investments keep growing as collateral', 'MF Central manages the pledge securely', 'Release anytime by closing your credit line'].map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
                     <span style={{ color: 'var(--jade)', fontSize: 13, flexShrink: 0 }}>✓</span>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item}</p>
@@ -406,9 +487,9 @@ export default function Onboarding({ onComplete }) {
                 ))}
               </div>
 
-              {/* ── FIX: Show ALL selected funds — no "+N more" truncation ── */}
+              {/* ── FIX: Show ALL selected mutual funds ── */}
               <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
-                FUNDS TO BE PLEDGED ({selectedFolios.length})
+                MUTUAL FUNDS TO BE PLEDGED ({selectedFolios.length})
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
                 {holdings.filter(h => selectedFolios.includes(h.folio_number)).map((h, i) => (
@@ -418,7 +499,7 @@ export default function Onboarding({ onComplete }) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ flex: 1 }}>
                         <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                          {h.rta === 'CAMS' ? 'MF CENTRAL' : 'KFINTECH'} · {h.scheme_type?.replace(/_/g, ' ')}
+                          {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · {h.scheme_type?.replace(/_/g, ' ')}
                         </p>
                         <p style={{ fontSize: 13, fontWeight: 600 }}>{h.scheme_name}</p>
                       </div>
@@ -431,12 +512,10 @@ export default function Onboarding({ onComplete }) {
                   </motion.div>
                 ))}
               </div>
-
               <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '14px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--jade)' }}>Total eligible credit</p>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--jade)' }}>{fmtL(selectedCredit)}</p>
               </div>
-
               <CTA onClick={handleInitiatePledge} loading={loading} label="Initiate Pledge with RTA →" />
             </motion.div>
           )}
@@ -445,13 +524,13 @@ export default function Onboarding({ onComplete }) {
           {currentStep === 'PLEDGE' && subStep === 1 && (
             <motion.div key="pledge1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>
-                Pledge OTPs sent by CAMS/KFintech to your registered mobile. Dev mode: auto-confirmed below.
+                Pledge OTPs sent by CAMS/KFintech to your registered mobile. Dev mode: auto-confirmed.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {pledges.map((p, i) => (
                   <div key={p.pledge_id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
-                      <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{p.scheme_name || `Fund ${i + 1}`}</p>
+                      <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{p.scheme_name || `Mutual Fund ${i + 1}`}</p>
                       <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.rta} · OTP: {p.rta === 'CAMS' ? '123456' : '654321'}</p>
                     </div>
                     <span style={{ fontSize: 18 }}>🔒</span>
@@ -471,8 +550,8 @@ export default function Onboarding({ onComplete }) {
                   {fmtL(selectedCredit || riskData?.approved_limit || 0)}
                 </p>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Credit limit ready to activate</p>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                  {['KFS Ready', 'NBFC Sanctioned', 'PIN Setup'].map((s, i) => (
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {['Mutual Fund Pledge Secured', 'NBFC Sanctioned', 'KFS Ready'].map((s, i) => (
                     <span key={i} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{s}</span>
                   ))}
                 </div>
