@@ -25,15 +25,12 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true)
   const [showPay, setShowPay]       = useState(false)
 
-  // Determine which screen to show
   const isAuthenticated = !!token
   const isOnboarded     = onboardingStep === 'ACTIVE' || onboardingStep === 'COMPLETE'
 
   const handleSplashComplete  = () => setShowSplash(false)
-  const handleAuthComplete    = () => {}
   const handleOnboardComplete = () => {}
 
-  // Active screen content
   const renderActiveTab = () => {
     switch (activeTab) {
       case 'home':      return <Dashboard key="home"      onPay={() => setShowPay(true)} />
@@ -56,7 +53,7 @@ export default function App() {
             border:       '1px solid rgba(255,255,255,0.08)',
             borderRadius: 12,
             fontSize:     14,
-            fontFamily:   'Outfit, sans-serif',
+            fontFamily:   'Manrope, sans-serif',
           },
           success: { iconTheme: { primary: '#00C896', secondary: '#000' } },
           error:   { iconTheme: { primary: '#EF4444', secondary: '#fff' } },
@@ -65,12 +62,8 @@ export default function App() {
 
       <AnimatePresence>
         {showSplash && (
-          <motion.div
-            key="splash"
-            exit={{ opacity: 0, scale: 1.05 }}
-            transition={{ duration: 0.4 }}
-            style={{ position: 'fixed', inset: 0, zIndex: 1000 }}
-          >
+          <motion.div key="splash" exit={{ opacity: 0, scale: 1.05 }}
+            transition={{ duration: 0.4 }} style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
             <Splash onComplete={handleSplashComplete} />
           </motion.div>
         )}
@@ -78,58 +71,53 @@ export default function App() {
 
       {!showSplash && (
         <AnimatePresence mode="wait">
-          {/* Not authenticated */}
           {!isAuthenticated && (
             <motion.div key="auth" {...pageVariants} style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
               <Auth />
             </motion.div>
           )}
 
-          {/* Authenticated but not onboarded */}
           {isAuthenticated && !isOnboarded && (
             <motion.div key="onboarding" {...pageVariants} style={{ position: 'fixed', inset: 0, zIndex: 100 }}>
               <Onboarding onComplete={handleOnboardComplete} />
             </motion.div>
           )}
 
-          {/* Fully onboarded — main app wrapped in RiskStateProvider */}
+          {/* RiskStateProvider wraps BOTH main app AND Pay overlay
+              so Pay.jsx can read availableLimit — fixes the ₹0 bug */}
           {isAuthenticated && isOnboarded && (
-            <motion.div key="app" {...pageVariants} style={{ position: 'fixed', inset: 0 }}>
-              <RiskStateProvider>
-                {/* Tab content */}
+            <RiskStateProvider>
+              <motion.div key="app" {...pageVariants} style={{ position: 'fixed', inset: 0 }}>
                 <AnimatePresence mode="wait">
                   {renderActiveTab()}
                 </AnimatePresence>
-
-                {/* Bottom nav */}
                 {!showPay && <NavBar />}
-              </RiskStateProvider>
-            </motion.div>
+              </motion.div>
+
+              <AnimatePresence>
+                {showPay && (
+                  <motion.div
+                    key="pay"
+                    initial={{ y: '100%' }}
+                    animate={{ y: 0 }}
+                    exit={{ y: '100%' }}
+                    transition={{ type: 'spring', stiffness: 300, damping: 35 }}
+                    style={{ position: 'fixed', inset: 0, zIndex: 200 }}
+                  >
+                    <Pay
+                      onBack={() => setShowPay(false)}
+                      onSuccess={() => {
+                        setShowPay(false)
+                        setActiveTab('home')
+                      }}
+                    />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </RiskStateProvider>
           )}
         </AnimatePresence>
       )}
-
-      {/* Pay overlay — outside RiskStateProvider intentionally (full screen modal) */}
-      <AnimatePresence>
-        {showPay && isAuthenticated && isOnboarded && (
-          <motion.div
-            key="pay"
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
-            transition={{ type: 'spring', stiffness: 300, damping: 35 }}
-            style={{ position: 'fixed', inset: 0, zIndex: 200 }}
-          >
-            <Pay
-              onBack={() => setShowPay(false)}
-              onSuccess={() => {
-                setShowPay(false)
-                setActiveTab('home')
-              }}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
     </>
   )
 }

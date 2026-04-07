@@ -11,17 +11,19 @@ const fmtL = (n) => {
   return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}`
 }
 
+// Map RTA → always show "MF Central" (per product decision)
+const rtaLabel = () => 'MF CENTRAL'
+
 const SCHEME_COLORS = {
   EQUITY_LARGE_CAP:  'var(--jade)',
   EQUITY_MID_CAP:    '#C9A449',
-  EQUITY_SMALL_CAP:  '#E05252',
+  EQUITY_SMALL_CAP:  'var(--red)',
   EQUITY_FLEXI_CAP:  '#8B5CF6',
   EQUITY_INDEX:      'var(--jade)',
   DEBT_SHORT_DUR:    '#3B82F6',
   DEBT_LIQUID:       '#06B6D4',
   HYBRID_BALANCED:   '#F59E0B',
 }
-
 const SCHEME_LABELS = {
   EQUITY_LARGE_CAP:  'Large Cap',
   EQUITY_MID_CAP:    'Mid Cap',
@@ -33,9 +35,22 @@ const SCHEME_LABELS = {
   HYBRID_BALANCED:   'Hybrid',
 }
 
-// LTV Bar: 50% LTV = full bar (govt threshold)
+const EyeOpenIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+    <circle cx="12" cy="12" r="3"/>
+  </svg>
+)
+const EyeOffIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+)
+
 function LTVBar({ ltvRatio }) {
   const ratio = parseFloat(ltvRatio || 0)
+  // Scale: 50% LTV = full bar (government threshold)
   const pct   = Math.min((ratio / 50) * 100, 100)
   const color = ratio >= 90 ? 'var(--red)' : ratio >= 80 ? 'var(--gold)' : 'var(--jade)'
 
@@ -46,53 +61,41 @@ function LTVBar({ ltvRatio }) {
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color }}>{ratio.toFixed(1)}%</p>
       </div>
 
-      {/* Track */}
-      <div style={{ width: '100%', height: 8, borderRadius: 6, background: 'var(--bg-elevated)', position: 'relative', overflow: 'visible' }}>
-        {/* Fill */}
+      <div style={{ width: '100%', height: 8, borderRadius: 6, background: 'var(--bg-elevated)', position: 'relative' }}>
         <motion.div
           animate={{ width: `${pct}%`, backgroundColor: color }}
           initial={{ width: '0%' }}
           transition={{ duration: 0.6, ease: 'easeOut' }}
-          style={{
-            height: '100%', borderRadius: 6,
-            boxShadow: `0 0 8px ${color}60`,
-          }}
+          style={{ height: '100%', borderRadius: 6, boxShadow: `0 0 8px ${color}50` }}
         />
-        {/* 80% marker */}
+        {/* 80% UPI freeze marker */}
         <div style={{
           position: 'absolute', left: `${(80/50)*100 > 100 ? 100 : (80/50)*100}%`,
-          top: -4, width: 2, height: 16, borderRadius: 1,
+          top: -3, width: 2, height: 14, borderRadius: 1,
           background: 'var(--gold)', transform: 'translateX(-50%)',
           display: (80/50)*100 <= 100 ? 'block' : 'none',
-        }} />
-        {/* 90% marker */}
-        <div style={{
-          position: 'absolute', left: `${(90/50)*100 > 100 ? 100 : (90/50)*100}%`,
-          top: -4, width: 2, height: 16, borderRadius: 1,
-          background: 'var(--red)', transform: 'translateX(-50%)',
-          display: (90/50)*100 <= 100 ? 'block' : 'none',
         }} />
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>0%</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>50% (Govt limit)</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--gold)' }}>80% UPI freeze</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>50% Govt limit</span>
       </div>
     </div>
   )
 }
 
-// Individual pledge card
 function PledgeCard({ pledge, hidden, totalValue }) {
   const [expanded, setExpanded] = useState(false)
 
-  const nav       = parseFloat(pledge.nav_at_pledge || 0)
-  const units     = parseFloat(pledge.units_pledged || 0)
-  const value     = parseFloat(pledge.value_at_pledge || units * nav || 0)
-  const eligible  = parseFloat(pledge.eligible_value_at_pledge || value * 0.4 || 0)
-  const alloc     = totalValue > 0 ? (value / totalValue) * 100 : 0
-  const color     = SCHEME_COLORS[pledge.scheme_type] || 'var(--text-secondary)'
-  const typeLabel = SCHEME_LABELS[pledge.scheme_type] || (pledge.scheme_type || 'Fund').replace(/_/g, ' ')
+  const nav      = parseFloat(pledge.nav_at_pledge || 0)
+  const units    = parseFloat(pledge.units_pledged || 0)
+  const value    = parseFloat(pledge.value_at_pledge || units * nav || 0)
+  const eligible = parseFloat(pledge.eligible_value_at_pledge || value * 0.4 || 0)
+  const alloc    = totalValue > 0 ? (value / totalValue) * 100 : 0
+  const color    = SCHEME_COLORS[pledge.scheme_type] || 'var(--text-secondary)'
+  const typeLabel = SCHEME_LABELS[pledge.scheme_type] || 'Fund'
 
   return (
     <motion.div
@@ -102,44 +105,46 @@ function PledgeCard({ pledge, hidden, totalValue }) {
         background:   'var(--bg-surface)',
         border:       expanded ? '1px solid var(--jade-border)' : '1px solid var(--border)',
         borderRadius: 18, marginBottom: 10, overflow: 'hidden', cursor: 'pointer',
+        transition:   'border-color 0.2s',
       }}
       onClick={() => setExpanded(e => !e)}
     >
-      {/* Main row */}
       <div style={{ padding: '14px 16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, marginRight: 12 }}>
             <p style={{
               fontSize: 13, fontWeight: 600, lineHeight: 1.3, marginBottom: 6,
-              color: 'var(--text-primary)',
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
             }}>
               {pledge.scheme_name || 'Mutual Fund'}
             </p>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 8,
-                background: `${color}15`, color, border: `1px solid ${color}30`,
-                padding: '2px 7px', borderRadius: 6, letterSpacing: '0.5px',
+                background: `${color}15`, color, border: `1px solid ${color}25`,
+                padding: '2px 7px', borderRadius: 5, letterSpacing: '0.5px',
               }}>{typeLabel}</span>
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 8,
                 background: 'var(--jade-dim)', color: 'var(--jade)',
                 border: '1px solid var(--jade-border)',
-                padding: '2px 7px', borderRadius: 6,
+                padding: '2px 7px', borderRadius: 5,
               }}>PLEDGED</span>
+              {/* Always show MF Central — per product decision */}
               <span style={{
-                fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
-                padding: '2px 4px',
-              }}>{pledge.rta || 'RTA'}</span>
+                fontFamily: 'var(--font-mono)', fontSize: 8,
+                color: 'var(--text-muted)', letterSpacing: '0.5px',
+              }}>
+                {rtaLabel()}
+              </span>
             </div>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 800 }}>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 800 }}>
               {hidden ? '••••' : fmtL(value)}
             </p>
-            <div style={{ width: 60, height: 3, background: 'var(--bg-elevated)', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
-              <div style={{ width: `${alloc}%`, height: '100%', background: color, borderRadius: 2 }} />
+            <div style={{ width: 56, height: 2, background: 'var(--bg-elevated)', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
+              <div style={{ width: `${Math.min(alloc, 100)}%`, height: '100%', background: color, borderRadius: 2 }} />
             </div>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
               {alloc.toFixed(1)}%
@@ -148,7 +153,6 @@ function PledgeCard({ pledge, hidden, totalValue }) {
         </div>
       </div>
 
-      {/* Expanded */}
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -158,25 +162,26 @@ function PledgeCard({ pledge, hidden, totalValue }) {
             transition={{ duration: 0.2 }}
           >
             <div style={{
-              padding: '12px 16px 14px',
-              borderTop: '1px solid var(--border)',
+              padding: '12px 16px 14px', borderTop: '1px solid var(--border)',
               display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
             }}>
               {[
-                { l: 'UNITS PLEDGED',   v: units.toFixed(3) },
-                { l: 'NAV AT PLEDGE',   v: hidden ? '••' : `₹${nav.toFixed(2)}` },
-                { l: 'PLEDGED VALUE',   v: hidden ? '••••' : fmtL(value) },
-                { l: 'ELIGIBLE CREDIT', v: hidden ? '••••' : fmtL(eligible) },
-                { l: 'PLEDGE REF',      v: pledge.pledge_ref_number || '—' },
-                { l: 'STATUS',          v: pledge.status || 'ACTIVE', color: 'var(--jade)' },
+                { l: 'UNITS',          v: units.toFixed(3) },
+                { l: 'NAV AT PLEDGE',  v: hidden ? '••' : `₹${nav.toFixed(2)}` },
+                { l: 'PLEDGED VALUE',  v: hidden ? '••••' : fmtL(value) },
+                { l: 'ELIGIBLE CREDIT',v: hidden ? '••••' : fmtL(eligible) },
+                { l: 'PLEDGE REF',     v: pledge.pledge_ref_number || '—' },
+                { l: 'STATUS',         v: pledge.status || 'ACTIVE', col: 'var(--jade)' },
               ].map((d, i) => (
                 <div key={i}>
                   <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '1.5px', marginBottom: 2 }}>{d.l}</p>
-                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: d.color || 'var(--text-primary)', wordBreak: 'break-all' }}>{d.v}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: d.col || 'var(--text-primary)', wordBreak: 'break-all' }}>
+                    {d.v}
+                  </p>
                 </div>
               ))}
             </div>
-            <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: 0.3 }} />
+            <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: 0.25 }} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -188,9 +193,9 @@ export default function Portfolio() {
   const { portfolio, setPortfolio, ltvHealth, setLTVHealth, creditAccount } = useStore()
   const { ltvRatio: ctxLtv, availableLimit } = useRiskState()
 
-  const [pledges, setPledges]   = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [hidden,  setHidden]    = useState(false)
+  const [pledges, setPledges] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [hidden,  setHidden]  = useState(false)
 
   useEffect(() => {
     const load = async () => {
@@ -200,11 +205,8 @@ export default function Portfolio() {
           getLTVHealth().catch(() => null),
           getPledgeStatus().catch(() => null),
         ])
-
         if (portfolioRes?.data) setPortfolio(portfolioRes.data)
         if (ltvRes?.data)       setLTVHealth(ltvRes.data)
-
-        // API returns { data: { pledges: [...] } }
         const pledgeList = pledgeRes?.data?.pledges || []
         setPledges(pledgeList.filter(p => p.status === 'ACTIVE'))
       } catch (_) {}
@@ -213,19 +215,15 @@ export default function Portfolio() {
     load()
   }, [])
 
-  const summary       = portfolio?.summary || {}
-  const totalValue    = parseFloat(summary.total_value || creditAccount?.credit_limit || 0)
-  const ltvRatio      = ltvHealth?.ltv_ratio || ctxLtv || 0
-  const outstanding   = parseFloat(creditAccount?.outstanding || 0)
-  const totalPledgedV = pledges.reduce((s, p) => s + parseFloat(p.value_at_pledge || 0), 0)
+  const ltvRatio       = parseFloat(ltvHealth?.ltv_ratio ?? ctxLtv ?? 0)
+  const outstanding    = parseFloat(creditAccount?.outstanding || 0)
+  const totalPledgedV  = pledges.reduce((s, p) => s + parseFloat(p.value_at_pledge || 0), 0)
 
   if (loading) return (
     <div className="screen">
       <MarketTicker />
       <div style={{ padding: '20px 20px 0' }}>
-        {[1,2,3].map(i => (
-          <div key={i} className="shimmer" style={{ height: 80, borderRadius: 18, marginBottom: 10 }} />
-        ))}
+        {[1,2,3].map(i => <div key={i} className="shimmer" style={{ height: 80, borderRadius: 18, marginBottom: 10 }} />)}
       </div>
     </div>
   )
@@ -249,10 +247,10 @@ export default function Portfolio() {
               width: 36, height: 36, borderRadius: 10,
               background: 'var(--bg-surface)', border: '1px solid var(--border-light)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 16, color: 'var(--text-secondary)',
+              color: 'var(--text-secondary)',
             }}
           >
-            {hidden ? '👁' : '🙈'}
+            {hidden ? <EyeOpenIcon /> : <EyeOffIcon />}
           </button>
         </motion.div>
 
@@ -280,26 +278,12 @@ export default function Portfolio() {
 
         {/* LTV bar */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
-          style={{
-            background: 'var(--bg-surface)', border: '1px solid var(--border)',
-            borderRadius: 16, padding: '14px 16px', marginBottom: 14,
-          }}>
+          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px 16px', marginBottom: 14 }}>
           <LTVBar ltvRatio={ltvRatio} />
-
-          {outstanding > 0 && (
-            <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
-              <div>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 2 }}>OUTSTANDING</p>
-                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--gold)' }}>
-                  {hidden ? '••••' : fmtL(outstanding)}
-                </p>
-              </div>
-              {ltvHealth?.message && (
-                <p style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1, lineHeight: 1.4 }}>
-                  {ltvHealth.message}
-                </p>
-              )}
-            </div>
+          {outstanding > 0 && ltvHealth?.message && (
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+              {ltvHealth.message}
+            </p>
           )}
         </motion.div>
 
@@ -308,7 +292,7 @@ export default function Portfolio() {
           <RiskNudgeBanner page="portfolio" variant="strip" />
         </div>
 
-        {/* Holdings list */}
+        {/* Pledged funds */}
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 10 }}>
           PLEDGED FUNDS ({pledges.length})
         </p>
@@ -318,20 +302,12 @@ export default function Portfolio() {
             background: 'var(--bg-surface)', border: '1px solid var(--border)',
             borderRadius: 18, padding: '40px 20px', textAlign: 'center', marginBottom: 20,
           }}>
-            <p style={{ fontSize: 32, marginBottom: 10 }}>📊</p>
-            <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>No pledged funds</p>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Your pledged holdings will appear here after onboarding
-            </p>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>No pledged funds</p>
+            <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Your pledged holdings will appear here</p>
           </div>
         ) : (
           pledges.map((p, i) => (
-            <PledgeCard
-              key={p.pledge_id || i}
-              pledge={p}
-              hidden={hidden}
-              totalValue={totalPledgedV}
-            />
+            <PledgeCard key={p.pledge_id || i} pledge={p} hidden={hidden} totalValue={totalPledgedV} />
           ))
         )}
       </div>

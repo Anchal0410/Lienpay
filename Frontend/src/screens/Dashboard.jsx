@@ -20,6 +20,16 @@ function greeting() {
   return 'Good night'
 }
 
+// Clean QR icon — no emoji
+const QRIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7" rx="1"/>
+    <rect x="14" y="3" width="7" height="7" rx="1"/>
+    <rect x="3" y="14" width="7" height="7" rx="1"/>
+    <path d="M14 14h3v3m0 4v-4h4M14 21h3"/>
+  </svg>
+)
+
 function CreditRing({ available, total, riskState }) {
   const R    = 76
   const SW   = 7
@@ -28,9 +38,9 @@ function CreditRing({ available, total, riskState }) {
   const pct    = total > 0 ? Math.max(0, Math.min(1, available / total)) : 1
   const offset = CIRC * (1 - pct)
 
-  const strokeColor = riskState === 'critical' ? '#E05252'
+  const strokeColor = riskState === 'critical' ? 'var(--red)'
     : riskState === 'action' ? '#E07830'
-    : riskState === 'watch'  ? '#E0A030'
+    : riskState === 'watch'  ? 'var(--gold)'
     : 'var(--jade)'
 
   return (
@@ -38,9 +48,8 @@ function CreditRing({ available, total, riskState }) {
       <div style={{
         position: 'absolute', width: SIZE + 40, height: SIZE + 40,
         borderRadius: '50%',
-        background: `radial-gradient(circle, ${strokeColor}10 0%, transparent 70%)`,
+        background: `radial-gradient(circle, ${strokeColor}08 0%, transparent 70%)`,
       }} />
-
       <svg width={SIZE} height={SIZE} style={{ position: 'relative', zIndex: 2 }}>
         <circle cx={SIZE/2} cy={SIZE/2} r={R}
           fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={SW} />
@@ -54,7 +63,6 @@ function CreditRing({ available, total, riskState }) {
           style={{ transform: 'rotate(-90deg)', transformOrigin: `${SIZE/2}px ${SIZE/2}px` }}
         />
       </svg>
-
       <div style={{
         position: 'absolute', display: 'flex', flexDirection: 'column',
         alignItems: 'center', justifyContent: 'center', zIndex: 3,
@@ -80,10 +88,7 @@ export default function Dashboard({ onPay }) {
   useEffect(() => {
     import('../api/client').then(({ getTxnHistory }) => {
       getTxnHistory({ limit: 5 })
-        .then(res => {
-          const txns = res?.data?.transactions || res?.transactions || []
-          if (setTransactions) setTransactions(txns)
-        })
+        .then(res => { if (setTransactions) setTransactions(res?.data?.transactions || res?.transactions || []) })
         .catch(() => {})
     })
   }, [])
@@ -133,7 +138,7 @@ export default function Dashboard({ onPay }) {
             <div style={{
               width: 6, height: 6, borderRadius: '50%',
               background: upiActive ? 'var(--jade)' : 'var(--gold)',
-              boxShadow: upiActive ? '0 0 6px rgba(0,212,161,0.4)' : '0 0 6px rgba(224,160,48,0.4)',
+              boxShadow: upiActive ? '0 0 6px rgba(0,212,161,0.4)' : '0 0 6px rgba(196,162,101,0.4)',
             }} />
             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, letterSpacing: '1.5px', color: upiActive ? 'var(--jade)' : 'var(--gold)' }}>
               {upiActive ? 'CLOU ACTIVE' : 'UPI PAUSED'}
@@ -149,9 +154,7 @@ export default function Dashboard({ onPay }) {
           {stats.map((s, i) => (
             <motion.div key={i} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 + i * 0.05 }}
               style={{ flex: 1, background: s.bg, border: '1px solid var(--border)', borderRadius: 14, padding: '10px 10px' }}>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 4 }}>
-                {s.label}
-              </p>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 4 }}>{s.label}</p>
               <p style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 800, color: s.color }}>{s.value}</p>
             </motion.div>
           ))}
@@ -162,7 +165,7 @@ export default function Dashboard({ onPay }) {
           <RiskNudgeBanner page="home" variant="strip" />
         </div>
 
-        {/* Scan & Pay — uses onPay prop which opens Pay.jsx (real QR scanner + backend) */}
+        {/* Scan & Pay */}
         <motion.button
           initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
           whileTap={{ scale: upiActive ? 0.97 : 1 }}
@@ -181,40 +184,37 @@ export default function Dashboard({ onPay }) {
             border: 'none',
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-            stroke={upiActive ? 'var(--bg-void)' : 'var(--text-muted)'} strokeWidth="2">
-            <rect x="3" y="3" width="7" height="7" rx="1"/>
-            <rect x="14" y="3" width="7" height="7" rx="1"/>
-            <rect x="3" y="14" width="7" height="7" rx="1"/>
-            <path d="M14 14h3v3m0 4v-4h4M14 21h3"/>
-          </svg>
+          <QRIcon />
           Scan &amp; Pay
         </motion.button>
 
         {!upiActive && (
           <p style={{ textAlign: 'center', fontSize: 11, color: riskState === 'critical' ? 'var(--red)' : 'var(--gold)', marginBottom: 10 }}>
-            ⚠ UPI paused — repay or add collateral to resume
+            UPI paused — repay or add collateral to resume
           </p>
         )}
 
         {/* Interest info */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}
           style={{
-            display: 'flex', alignItems: 'center', gap: 10,
+            display: 'flex', alignItems: 'center', gap: 12,
             background: 'var(--jade-dim)', border: '1px solid var(--jade-border)',
             borderRadius: 14, padding: '12px 14px', marginBottom: 20,
           }}>
           <div style={{
-            width: 32, height: 32, borderRadius: 8, background: 'var(--jade)',
+            width: 34, height: 34, borderRadius: 10, background: 'var(--jade)',
             color: 'var(--bg-void)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 800, flexShrink: 0,
+            fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 800, flexShrink: 0,
+            letterSpacing: '-0.5px',
           }}>0%</div>
           <div>
-            <p style={{ fontSize: 13, fontWeight: 700 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>
               {aprProduct === 'INTEREST_ONLY' ? 'Interest-only — pay principal whenever' : '30 days interest-free on every payment'}
             </p>
             <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-              {aprProduct === 'INTEREST_ONLY' ? `${apr}% p.a. — interest charged monthly only` : `Then ${(apr / 12).toFixed(1)}%/mo. Cards charge 3%+.`}
+              {aprProduct === 'INTEREST_ONLY'
+                ? `${apr}% p.a. — interest charged monthly only`
+                : `Then ${(apr / 12).toFixed(1)}%/mo. Credit cards charge 3%+.`}
             </p>
           </div>
         </motion.div>
@@ -233,14 +233,14 @@ export default function Dashboard({ onPay }) {
                   width: 38, height: 38, borderRadius: 10, flexShrink: 0,
                   background: 'var(--bg-surface)', border: '1px solid var(--border-light)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 400, color: 'var(--jade)',
+                  fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--jade)',
                 }}>
-                  {(t.merchant_name || 'M').charAt(0).toUpperCase()}
+                  {(t.merchant_name || 'P').charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1 }}>
                   <p style={{ fontSize: 13, fontWeight: 600 }}>{t.merchant_name || 'Payment'}</p>
                   <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1px' }}>
-                    {t.status === 'SETTLED' ? '● SETTLED' : t.status}
+                    {t.status || 'SETTLED'}
                   </p>
                 </div>
                 <p style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 800 }}>
