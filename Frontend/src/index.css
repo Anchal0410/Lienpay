@@ -1,50 +1,57 @@
 /* ─────────────────────────────────────────────
-   LIENPAY DESIGN SYSTEM — v3
-   Original vars preserved. New utilities added.
+   LIENPAY V3 DESIGN SYSTEM
+   Black + Green · Liquid Luxury
    ───────────────────────────────────────────── */
 
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400&family=Manrope:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-/* ── CSS VARIABLES ─────────────────────────── */
 :root {
-  --jade:         #00D4A1;
-  --jade-bright:  #00EDBA;
-  --jade-soft:    #00C896;
-  --jade-dim:     rgba(0,212,161,0.08);
-  --jade-glow:    rgba(0,212,161,0.05);
-  --jade-border:  rgba(0,212,161,0.16);
-  --jade-mid:     rgba(0,212,161,0.25);
+  --jade: #00D4A1;
+  --jade-bright: #00EDBA;
+  --jade-soft: #00C896;
+  --jade-dim: rgba(0,212,161,0.08);
+  --jade-glow: rgba(0,212,161,0.05);
+  --jade-border: rgba(0,212,161,0.16);
+  --jade-mid: rgba(0,212,161,0.25);
 
-  --gold:         #C4A265;
-  --gold-dim:     rgba(196,162,101,0.08);
-  --red:          #E05252;
-  --red-dim:      rgba(224,82,82,0.08);
-  --amber:        #E0A030;
-  --amber-dim:    rgba(224,160,48,0.08);
+  --gold: #C4A265;
+  --gold-dim: rgba(196,162,101,0.08);
 
-  --bg-void:      #050809;
-  --bg-base:      #080B0D;
-  --bg-surface:   #0C1014;
-  --bg-elevated:  #12181D;
-  --bg-hover:     #1A2128;
-  --bg-overlay:   #1E252C;
+  --red: #E05252;
+  --red-dim: rgba(224,82,82,0.08);
+  --amber: #E0A030;
+  --amber-dim: rgba(224,160,48,0.08);
 
-  --text-primary:   #E8F0EC;
+  --bg-void: #050809;
+  --bg-base: #080B0D;
+  --bg-surface: #0C1014;
+  --bg-elevated: #12181D;
+  --bg-hover: #1A2128;
+  --bg-overlay: #1E252C;
+
+  --text-primary: #E8F0EC;
   --text-secondary: #7A8F85;
-  --text-muted:     #3A4A44;
-  --text-hint:      #222E29;
+  --text-muted: #3A4A44;
+  --text-hint: #222E29;
 
-  --border:       rgba(0,212,161,0.06);
+  --border: rgba(0,212,161,0.06);
   --border-light: rgba(0,212,161,0.10);
-  --border-jade:  rgba(0,212,161,0.16);
+  --border-jade: rgba(0,212,161,0.16);
+
+  --shadow-jade: 0 0 40px rgba(0,212,161,0.08);
 
   --font-display: 'Fraunces', Georgia, serif;
-  --font-sans:    'Manrope', system-ui, sans-serif;
-  --font-mono:    'JetBrains Mono', monospace;
-  --font-serif:   'Fraunces', Georgia, serif; /* alias */
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
 
-  --safe-top:    env(safe-area-inset-top, 0px);
+  /* Backward-compat aliases */
+  --font-serif: 'Fraunces', Georgia, serif;
+
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* ── Market ticker height — used for padding on all .screen pages ── */
+  --ticker-height: 26px;
 }
 
 /* ── RESET ─────────────────────────────────── */
@@ -55,7 +62,6 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* CRITICAL — keeps the app layout contained */
 html, body, #root {
   height: 100%;
   width: 100%;
@@ -69,57 +75,53 @@ body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  overscroll-behavior: none;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-#root {
-  display: flex;
-  flex-direction: column;
-  position: relative;
+/* ── ANIMATIONS ────────────────────────────── */
+@keyframes breathe {
+  0%, 100% { opacity: 0.6; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes float1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(25px, -18px) scale(1.08); }
+  66% { transform: translate(-15px, 12px) scale(0.95); }
+}
+@keyframes float2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-20px, -25px) scale(1.1); }
+}
+@keyframes liquidMorph {
+  0%   { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
+  25%  { border-radius: 40% 60% 50% 50% / 50% 40% 60% 50%; }
+  50%  { border-radius: 50% 50% 40% 60% / 60% 50% 50% 40%; }
+  75%  { border-radius: 60% 50% 50% 40% / 40% 50% 60% 50%; }
+  100% { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
+}
+@keyframes pulseRing {
+  0%   { transform: scale(1); opacity: 0.4; }
+  100% { transform: scale(1.8); opacity: 0; }
 }
 
-/* ── SCROLLBAR ─────────────────────────────── */
-::-webkit-scrollbar { width: 2px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--jade-dim); border-radius: 2px; }
-
-/* ── TYPOGRAPHY ────────────────────────────── */
-.font-display { font-family: var(--font-display); }
-.font-sans    { font-family: var(--font-sans); }
-.font-mono    { font-family: var(--font-mono); }
-
-/* ── GLASS ─────────────────────────────────── */
-.glass {
-  background: rgba(255,255,255,0.02);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-}
-
-.glass-card {
-  position: relative;
-  overflow: hidden;
-  border-radius: 20px;
-  border: 1px solid var(--border-light);
-  background: rgba(12,16,20,0.80);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 4px 24px -4px rgba(5,8,9,0.6), inset 0 1px 0 0 rgba(255,255,255,0.03);
-}
-
-/* ── SCREEN — CRITICAL for scrolling ──────── */
+/* ── SCREEN ─────────────────────────────────
+   Used by: Dashboard, Portfolio, Billing, Profile, Settings
+   Includes padding for ticker bar at top + nav bar at bottom
+   ─────────────────────────────────────────── */
 .screen {
   position: absolute;
   inset: 0;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  padding-top: var(--safe-top);
+  /* ── FIX: include ticker height so content isn't hidden behind ticker ── */
+  padding-top: calc(var(--safe-top) + var(--ticker-height));
   padding-bottom: calc(var(--safe-bottom) + 80px);
 }
-
-/* ── PAGE PADDING ──────────────────────────── */
-.page-pad { padding: 0 20px; }
 
 /* ── BOTTOM NAV ────────────────────────────── */
 .bottom-nav {
@@ -150,143 +152,11 @@ input {
 
 input::placeholder { color: var(--text-muted); }
 
-/* ── SHIMMER ───────────────────────────────── */
-@keyframes shimmer {
-  0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
+/* ── SHIMMER LOADING ───────────────────────── */
 .shimmer {
   background: linear-gradient(90deg, var(--bg-elevated) 0%, var(--bg-overlay) 50%, var(--bg-elevated) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
-}
-
-/* ── ANIMATIONS ────────────────────────────── */
-@keyframes fadeUp   { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes fadeIn   { from { opacity: 0; } to { opacity: 1; } }
-@keyframes slideUp  { from { transform: translateY(100%); } to { transform: translateY(0); } }
-@keyframes spin     { to { transform: rotate(360deg); } }
-@keyframes breathe  { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 0.6; transform: scale(1.04); } }
-@keyframes pulseRing { 0% { transform: scale(1); opacity: 0.4; } 100% { transform: scale(1.8); opacity: 0; } }
-
-@keyframes float1 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%       { transform: translate(25px, -18px) scale(1.08); }
-  66%       { transform: translate(-15px, 12px) scale(0.95); }
-}
-@keyframes float2 {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%       { transform: translate(-20px, -25px) scale(1.1); }
-}
-@keyframes liquidMorph {
-  0%   { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
-  25%  { border-radius: 40% 60% 50% 50% / 50% 40% 60% 50%; }
-  50%  { border-radius: 50% 50% 40% 60% / 60% 50% 50% 40%; }
-  75%  { border-radius: 60% 50% 50% 40% / 40% 50% 60% 50%; }
-  100% { border-radius: 60% 40% 50% 50% / 50% 60% 40% 50%; }
-}
-
-/* ── MARKET TICKER ─────────────────────────── */
-.market-ticker {
-  background: rgba(5,8,9,0.98);
-  border-bottom: 1px solid var(--border);
-  height: 30px;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-@keyframes ticker-scroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-33.333%); }
-}
-.ticker-track {
-  display: flex;
-  align-items: center;
-  animation: ticker-scroll 20s linear infinite;
-  will-change: transform;
-}
-.ticker-track:hover { animation-play-state: paused; }
-
-/* ── LTV BAR ───────────────────────────────── */
-.ltv-bar-track {
-  width: 100%;
-  height: 8px;
-  border-radius: 6px;
-  background: var(--bg-elevated);
-  position: relative;
-  overflow: visible;
-}
-.ltv-bar-fill {
-  height: 100%;
-  border-radius: 6px;
-  transition: width 0.5s ease-out, background-color 0.3s;
-}
-.ltv-marker {
-  position: absolute;
-  top: -4px;
-  width: 2px;
-  height: 16px;
-  border-radius: 1px;
-  transform: translateX(-50%);
-}
-
-/* ── RISK SIMULATION PANEL ─────────────────── */
-.sim-tab {
-  position: fixed;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  z-index: 101;
-  width: 32px;
-  height: 64px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-light);
-  border-right: none;
-  border-radius: 8px 0 0 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.sim-panel {
-  position: fixed;
-  top: 0;
-  right: 0;
-  width: 300px;
-  height: 100%;
-  z-index: 100;
-  background: var(--bg-overlay);
-  border-left: 1px solid var(--border-light);
-  overflow-y: auto;
-  transform: translateX(100%);
-  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-}
-.sim-panel.open { transform: translateX(0); }
-
-/* ── RANGE INPUT ───────────────────────────── */
-input[type=range] {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--bg-elevated);
-  border: none;
-  padding: 0;
-  width: 100%;
-  cursor: pointer;
-}
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--jade);
-  cursor: pointer;
-  border: 2px solid var(--bg-overlay);
-  box-shadow: 0 0 6px var(--jade-mid);
 }
 
 /* ── UTILITY ───────────────────────────────── */

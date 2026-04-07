@@ -23,17 +23,16 @@ class ErrorBoundary extends Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ position: 'fixed', inset: 0, background: '#050809', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ position: 'fixed', inset: 0, background: '#050809', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
           <div style={{ fontSize: 40, marginBottom: 16 }}>⚠️</div>
-          <h2 style={{ color: '#E8F0EC', fontSize: 18, fontWeight: 600, marginBottom: 8, textAlign: 'center' }}>Something went wrong</h2>
-          <p style={{ color: '#7A8F85', fontSize: 14, marginBottom: 28, textAlign: 'center', lineHeight: 1.5 }}>LienPay encountered an error. Tap below to reload.</p>
-          <button
-            onClick={() => { this.setState({ hasError: false }); window.location.reload() }}
+          <h2 style={{ color: '#E8F0EC', fontSize: 18, fontWeight: 600, marginBottom: 8, textAlign: 'center', fontFamily: 'system-ui' }}>Something went wrong</h2>
+          <p style={{ color: '#7A8F85', fontSize: 14, marginBottom: 28, textAlign: 'center', lineHeight: 1.5, fontFamily: 'system-ui' }}>LienPay encountered an error. Tap below to reload.</p>
+          <button onClick={() => { this.setState({ hasError: false }); window.location.reload() }}
             style={{ padding: '14px 32px', borderRadius: 14, background: 'linear-gradient(135deg, #00D4A1, #00A878)', color: '#000', fontSize: 15, fontWeight: 700, border: 'none', cursor: 'pointer' }}>
             Reload App
           </button>
-          {process.env.NODE_ENV !== 'production' && (
-            <p style={{ color: '#E05252', fontSize: 11, marginTop: 20, maxWidth: 340, textAlign: 'center', wordBreak: 'break-all' }}>{this.state.error?.message}</p>
+          {process.env.NODE_ENV !== 'production' && this.state.error && (
+            <p style={{ color: '#E05252', fontSize: 11, marginTop: 20, maxWidth: 340, textAlign: 'center', wordBreak: 'break-all', fontFamily: 'monospace' }}>{this.state.error.message}</p>
           )}
         </div>
       )
@@ -43,27 +42,31 @@ class ErrorBoundary extends Component {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MARKET TICKER — persistent on all main app screens
+// MARKET TICKER
+// Only shown on: Splash (native), Auth, main app tabs
+// NOT shown during: Onboarding
 // ─────────────────────────────────────────────────────────────
+export const TICKER_HEIGHT = 26
+
 const TICKERS = [
-  { label: 'NIFTY 50', val: '+0.84%', up: true },
-  { label: 'SENSEX', val: '+0.76%', up: true },
-  { label: 'LTV CAP', val: '40%', up: null },
-  { label: 'PLEDGE', val: 'SECURE', up: null },
-  { label: 'APR', val: '12%', up: null },
-  { label: 'GOLD', val: '+0.22%', up: true },
-  { label: 'DEBT LTV', val: '80%', up: null },
+  { label: 'NIFTY 50',   val: '+0.84%', up: true },
+  { label: 'SENSEX',     val: '+0.76%', up: true },
+  { label: 'LTV CAP',    val: '40%',    up: null },
+  { label: 'PLEDGE',     val: 'SECURE', up: null },
+  { label: 'APR',        val: '12%',    up: null },
+  { label: 'GOLD',       val: '+0.22%', up: true },
+  { label: 'DEBT LTV',   val: '80%',    up: null },
   { label: 'NIFTY BANK', val: '+0.61%', up: true },
-  { label: 'MF PLEDGE', val: 'ACTIVE', up: null },
+  { label: 'MF PLEDGE',  val: 'ACTIVE', up: null },
 ]
 
-function MarketTicker() {
+export function MarketTicker() {
   return (
     <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 500,
-      height: 26, overflow: 'hidden',
+      position: 'fixed', top: 0, left: 0, right: 0,
+      height: TICKER_HEIGHT, overflow: 'hidden', zIndex: 500,
       borderBottom: '1px solid rgba(0,212,161,0.08)',
-      background: 'rgba(5,8,9,0.96)',
+      background: 'rgba(5,8,9,0.97)',
       display: 'flex', alignItems: 'center',
     }}>
       <motion.div
@@ -74,7 +77,7 @@ function MarketTicker() {
         {[...TICKERS, ...TICKERS, ...TICKERS, ...TICKERS].map((t, i) => (
           <div key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '0 18px', borderRight: '1px solid rgba(0,212,161,0.06)' }}>
             <span style={{ fontSize: 8, color: 'rgba(122,143,133,0.7)', fontFamily: 'monospace', letterSpacing: '0.8px' }}>{t.label}</span>
-            <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: t.up === true ? '#00D4A1' : t.up === false ? '#E05252' : 'rgba(232,240,236,0.45)' }}>{t.val}</span>
+            <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: t.up === true ? '#00D4A1' : 'rgba(232,240,236,0.45)' }}>{t.val}</span>
           </div>
         ))}
       </motion.div>
@@ -83,18 +86,15 @@ function MarketTicker() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ONBOARDED STEP VALUES
+// ONBOARDED CHECK
 // ─────────────────────────────────────────────────────────────
 const ONBOARDED_STEPS = new Set(['ACTIVE', 'COMPLETE', 'CREDIT_ACTIVE', 'CREDIT_LINE_ACTIVE'])
 
 const pageVariants = {
   initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.4, 0, 0.2, 1] } },
-  exit:    { opacity: 0, y: -8, transition: { duration: 0.2 } },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.2 } },
+  exit:    { opacity: 0,    transition: { duration: 0.15 } },
 }
-
-// Add 26px top padding to all main screens to clear the ticker
-const TICKER_HEIGHT = 26
 
 function AppContent() {
   const { token, onboardingStep, activeTab, setActiveTab } = useStore()
@@ -103,6 +103,9 @@ function AppContent() {
 
   const isAuthenticated = !!token
   const isOnboarded     = ONBOARDED_STEPS.has(onboardingStep)
+
+  // ── Ticker shows everywhere EXCEPT during onboarding ──
+  const showTicker = !showSplash && !(isAuthenticated && !isOnboarded)
 
   const renderActiveTab = () => {
     switch (activeTab) {
@@ -119,9 +122,9 @@ function AppContent() {
     <>
       <Toaster
         position="top-center"
-        containerStyle={{ top: TICKER_HEIGHT + 8 }}
+        containerStyle={{ top: showTicker ? TICKER_HEIGHT + 6 : 6 }}
         toastOptions={{
-          style: { background: '#1A1A24', color: '#F0F0F5', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, fontSize: 14, fontFamily: 'Manrope, system-ui, sans-serif' },
+          style: { background: '#1A1A24', color: '#F0F0F5', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, fontSize: 14, fontFamily: 'Manrope, system-ui' },
           success: { iconTheme: { primary: '#00C896', secondary: '#000' } },
           error:   { iconTheme: { primary: '#EF4444', secondary: '#fff' } },
         }}
@@ -130,31 +133,45 @@ function AppContent() {
       {/* Splash */}
       <AnimatePresence>
         {showSplash && (
-          <motion.div key="splash" exit={{ opacity: 0, scale: 1.05 }} transition={{ duration: 0.4 }} style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
+          <motion.div key="splash" exit={{ opacity: 0, scale: 1.04 }} transition={{ duration: 0.4 }}
+            style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
             <Splash onComplete={() => setShowSplash(false)} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Market ticker — shown on all non-splash screens */}
-      {!showSplash && <MarketTicker />}
+      {/* Market ticker — NOT during splash or onboarding */}
+      {showTicker && <MarketTicker />}
 
       {!showSplash && (
-        // Add top padding to clear the ticker bar
-        <div style={{ paddingTop: TICKER_HEIGHT, position: 'fixed', inset: 0 }}>
-          <AnimatePresence mode="wait">
+        <div style={{
+          position: 'fixed', inset: 0,
+          // Push content below ticker on screens that need it
+          // Auth and main app — ticker is showing
+          // Onboarding — no ticker
+          paddingTop: showTicker ? TICKER_HEIGHT : 0,
+        }}>
+          <AnimatePresence>
+            {/* Not authenticated → Auth */}
             {!isAuthenticated && (
-              <motion.div key="auth" {...pageVariants} style={{ position: 'absolute', inset: 0, zIndex: 100 }}>
+              <motion.div key="auth" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+                style={{ position: 'absolute', inset: 0, zIndex: 100 }}>
                 <Auth />
               </motion.div>
             )}
+
+            {/* Authenticated but not onboarded → Onboarding */}
             {isAuthenticated && !isOnboarded && (
-              <motion.div key="onboarding" {...pageVariants} style={{ position: 'absolute', inset: 0, zIndex: 100 }}>
+              <motion.div key="onboarding" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+                style={{ position: 'absolute', inset: 0, zIndex: 100 }}>
                 <Onboarding onComplete={() => {}} />
               </motion.div>
             )}
+
+            {/* Fully onboarded → main app */}
             {isAuthenticated && isOnboarded && (
-              <motion.div key="app" {...pageVariants} style={{ position: 'absolute', inset: 0 }}>
+              <motion.div key="app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+                style={{ position: 'absolute', inset: 0 }}>
                 <AnimatePresence mode="wait">
                   {renderActiveTab()}
                 </AnimatePresence>
