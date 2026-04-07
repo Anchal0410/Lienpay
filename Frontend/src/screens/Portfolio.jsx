@@ -1,130 +1,98 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getPortfolioSummary, getPledgeStatus } from '../api/client'
+import { getPortfolioSummary, getLTVHealth, getPledgeStatus } from '../api/client'
+import useStore from '../store/useStore'
 import { useRiskState } from '../contexts/RiskStateContext'
 import { MarketTicker, RiskNudgeBanner } from '../components/RiskComponents'
 
-const fmt    = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
-const fmtL   = (n) => {
+const fmt  = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
+const fmtL = (n) => {
   const v = parseFloat(n || 0)
   return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}`
 }
 
-// Per-category LTV caps (matches backend fund universe)
-const LTV_CAPS = {
-  'EQUITY_LARGE_CAP':  0.40,
-  'EQUITY_MID_CAP':    0.40,
-  'EQUITY_SMALL_CAP':  0.35,
-  'EQUITY_FLEXI_CAP':  0.40,
-  'EQUITY_INDEX':      0.40,
-  'DEBT_LIQUID':       0.80,
-  'DEBT_SHORT_DUR':    0.80,
-  'HYBRID_BALANCED':   0.40,
-}
-
-const FUND_QUALITY_COLORS = {
-  'DEBT_LIQUID':    '#22C55E',
-  'DEBT_SHORT_DUR': '#22C55E',
-  'EQUITY_LARGE_CAP': '#4ADE80',
-  'EQUITY_INDEX':   '#4ADE80',
-  'EQUITY_FLEXI_CAP': '#F59E0B',
-  'HYBRID_BALANCED': '#F59E0B',
-  'EQUITY_MID_CAP':  '#F97316',
-  'EQUITY_SMALL_CAP': '#EF4444',
+const SCHEME_COLORS = {
+  EQUITY_LARGE_CAP:  'var(--jade)',
+  EQUITY_MID_CAP:    '#C9A449',
+  EQUITY_SMALL_CAP:  '#E05252',
+  EQUITY_FLEXI_CAP:  '#8B5CF6',
+  EQUITY_INDEX:      'var(--jade)',
+  DEBT_SHORT_DUR:    '#3B82F6',
+  DEBT_LIQUID:       '#06B6D4',
+  HYBRID_BALANCED:   '#F59E0B',
 }
 
 const SCHEME_LABELS = {
-  'EQUITY_LARGE_CAP':  'Large Cap',
-  'EQUITY_MID_CAP':    'Mid Cap',
-  'EQUITY_SMALL_CAP':  'Small Cap',
-  'EQUITY_FLEXI_CAP':  'Flexi Cap',
-  'EQUITY_INDEX':      'Index',
-  'DEBT_LIQUID':       'Liquid Debt',
-  'DEBT_SHORT_DUR':    'Short Duration',
-  'HYBRID_BALANCED':   'Hybrid',
+  EQUITY_LARGE_CAP:  'Large Cap',
+  EQUITY_MID_CAP:    'Mid Cap',
+  EQUITY_SMALL_CAP:  'Small Cap',
+  EQUITY_FLEXI_CAP:  'Flexi Cap',
+  EQUITY_INDEX:      'Index',
+  DEBT_SHORT_DUR:    'Short Duration',
+  DEBT_LIQUID:       'Liquid Debt',
+  HYBRID_BALANCED:   'Hybrid',
 }
 
-// ── LTV BAR ───────────────────────────────────────────────────
-// Scale: bar fills to 100% when LTV = 50% (government threshold)
-// This makes the visual intuitive — halfway filled = at the limit
+// LTV Bar: 50% LTV = full bar (govt threshold)
 function LTVBar({ ltvRatio }) {
-  const pct = Math.min((ltvRatio / 50) * 100, 100) // scaled to 50% = full
-
-  const barColor =
-    ltvRatio > 45 ? '#EF4444' :
-    ltvRatio >= 42 ? '#F59E0B' :
-    ltvRatio >= 80 ? '#F97316' :
-    '#22C55E'
+  const ratio = parseFloat(ltvRatio || 0)
+  const pct   = Math.min((ratio / 50) * 100, 100)
+  const color = ratio >= 90 ? 'var(--red)' : ratio >= 80 ? 'var(--gold)' : 'var(--jade)'
 
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div style={{ marginBottom: 16 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px' }}>
-          LTV RATIO
-        </p>
-        <p style={{
-          fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700,
-          color: barColor,
-        }}>
-          {ltvRatio.toFixed(1)}%
-        </p>
+        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px' }}>LTV RATIO</p>
+        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color }}>{ratio.toFixed(1)}%</p>
       </div>
 
-      {/* Bar */}
-      <div className="ltv-bar-track">
+      {/* Track */}
+      <div style={{ width: '100%', height: 8, borderRadius: 6, background: 'var(--bg-elevated)', position: 'relative', overflow: 'visible' }}>
+        {/* Fill */}
         <motion.div
-          className="ltv-bar-fill"
-          animate={{ width: `${pct}%`, backgroundColor: barColor }}
+          animate={{ width: `${pct}%`, backgroundColor: color }}
           initial={{ width: '0%' }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          style={{ background: barColor, boxShadow: `0 0 10px ${barColor}40` }}
-        />
-
-        {/* 42% marker (watch threshold) */}
-        <div
-          className="ltv-marker"
+          transition={{ duration: 0.6, ease: 'easeOut' }}
           style={{
-            left: `${(42/50)*100}%`,
-            background: '#F59E0B',
-            transform: 'translateX(-50%)',
+            height: '100%', borderRadius: 6,
+            boxShadow: `0 0 8px ${color}60`,
           }}
         />
-
-        {/* 45% marker (action threshold) */}
-        <div
-          className="ltv-marker"
-          style={{
-            left: `${(45/50)*100}%`,
-            background: '#EF4444',
-            transform: 'translateX(-50%)',
-          }}
-        />
+        {/* 80% marker */}
+        <div style={{
+          position: 'absolute', left: `${(80/50)*100 > 100 ? 100 : (80/50)*100}%`,
+          top: -4, width: 2, height: 16, borderRadius: 1,
+          background: 'var(--gold)', transform: 'translateX(-50%)',
+          display: (80/50)*100 <= 100 ? 'block' : 'none',
+        }} />
+        {/* 90% marker */}
+        <div style={{
+          position: 'absolute', left: `${(90/50)*100 > 100 ? 100 : (90/50)*100}%`,
+          top: -4, width: 2, height: 16, borderRadius: 1,
+          background: 'var(--red)', transform: 'translateX(-50%)',
+          display: (90/50)*100 <= 100 ? 'block' : 'none',
+        }} />
       </div>
 
-      {/* Scale labels */}
       <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4 }}>
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>0%</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#F59E0B' }}>42%</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: '#EF4444' }}>45%</span>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>50% ← Govt limit</span>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)' }}>50% (Govt limit)</span>
       </div>
     </div>
   )
 }
 
-// ── HOLDING CARD ──────────────────────────────────────────────
-function HoldingCard({ holding, hidden, totalPledgedValue, marketDrop }) {
+// Individual pledge card
+function PledgeCard({ pledge, hidden, totalValue }) {
   const [expanded, setExpanded] = useState(false)
 
-  const nav         = parseFloat(holding.nav_at_fetch || holding.nav || 0)
-  const units       = parseFloat(holding.units_pledged || holding.units || 0)
-  const ltvCap      = LTV_CAPS[holding.scheme_type] || 0.40
-  const effectiveNav = nav * (1 - (marketDrop || 0) / 100)
-  const currentValue = units * effectiveNav
-  const eligibleCredit = currentValue * ltvCap
-  const allocation  = totalPledgedValue > 0 ? (currentValue / totalPledgedValue) * 100 : 0
-  const navChange   = nav > 0 ? ((effectiveNav - nav) / nav * 100) : 0
-  const color       = FUND_QUALITY_COLORS[holding.scheme_type] || 'var(--text-secondary)'
+  const nav       = parseFloat(pledge.nav_at_pledge || 0)
+  const units     = parseFloat(pledge.units_pledged || 0)
+  const value     = parseFloat(pledge.value_at_pledge || units * nav || 0)
+  const eligible  = parseFloat(pledge.eligible_value_at_pledge || value * 0.4 || 0)
+  const alloc     = totalValue > 0 ? (value / totalValue) * 100 : 0
+  const color     = SCHEME_COLORS[pledge.scheme_type] || 'var(--text-secondary)'
+  const typeLabel = SCHEME_LABELS[pledge.scheme_type] || (pledge.scheme_type || 'Fund').replace(/_/g, ' ')
 
   return (
     <motion.div
@@ -133,9 +101,7 @@ function HoldingCard({ holding, hidden, totalPledgedValue, marketDrop }) {
       style={{
         background:   'var(--bg-surface)',
         border:       expanded ? '1px solid var(--jade-border)' : '1px solid var(--border)',
-        borderRadius: 18, marginBottom: 10, overflow: 'hidden',
-        cursor: 'pointer',
-        transition:   'border-color 0.2s',
+        borderRadius: 18, marginBottom: 10, overflow: 'hidden', cursor: 'pointer',
       }}
       onClick={() => setExpanded(e => !e)}
     >
@@ -144,62 +110,45 @@ function HoldingCard({ holding, hidden, totalPledgedValue, marketDrop }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, marginRight: 12 }}>
             <p style={{
-              fontSize: 13, fontWeight: 700, color: 'var(--text-primary)',
-              lineHeight: 1.2, marginBottom: 4,
+              fontSize: 13, fontWeight: 600, lineHeight: 1.3, marginBottom: 6,
+              color: 'var(--text-primary)',
               display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
             }}>
-              {holding.scheme_name}
+              {pledge.scheme_name || 'Mutual Fund'}
             </p>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 8,
                 background: `${color}15`, color, border: `1px solid ${color}30`,
                 padding: '2px 7px', borderRadius: 6, letterSpacing: '0.5px',
-              }}>
-                {SCHEME_LABELS[holding.scheme_type] || holding.scheme_type}
-              </span>
+              }}>{typeLabel}</span>
               <span style={{
                 fontFamily: 'var(--font-mono)', fontSize: 8,
                 background: 'var(--jade-dim)', color: 'var(--jade)',
                 border: '1px solid var(--jade-border)',
-                padding: '2px 7px', borderRadius: 6, letterSpacing: '0.5px',
-              }}>
-                PLEDGED
-              </span>
-              {holding.is_notorious && (
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 8,
-                  background: 'rgba(239,68,68,0.1)', color: 'var(--red)',
-                  border: '1px solid rgba(239,68,68,0.3)',
-                  padding: '2px 7px', borderRadius: 6,
-                }}>
-                  ⚠ WATCHLIST
-                </span>
-              )}
+                padding: '2px 7px', borderRadius: 6,
+              }}>PLEDGED</span>
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)',
+                padding: '2px 4px',
+              }}>{pledge.rta || 'RTA'}</span>
             </div>
           </div>
           <div style={{ textAlign: 'right', flexShrink: 0 }}>
-            <p style={{
-              fontFamily: 'var(--font-mono)', fontSize: 16,
-              fontWeight: 800, color: 'var(--text-primary)',
-            }}>
-              {hidden ? '••••••' : fmtL(currentValue)}
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 800 }}>
+              {hidden ? '••••' : fmtL(value)}
             </p>
-            {/* Allocation bar */}
-            <div style={{ width: 80, height: 3, background: 'var(--bg-elevated)', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
-              <div style={{
-                width: `${allocation}%`, height: '100%',
-                background: color, borderRadius: 2,
-              }} />
+            <div style={{ width: 60, height: 3, background: 'var(--bg-elevated)', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
+              <div style={{ width: `${alloc}%`, height: '100%', background: color, borderRadius: 2 }} />
             </div>
             <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginTop: 2 }}>
-              {allocation.toFixed(1)}% of pledge
+              {alloc.toFixed(1)}%
             </p>
           </div>
         </div>
       </div>
 
-      {/* Expanded detail */}
+      {/* Expanded */}
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -209,41 +158,25 @@ function HoldingCard({ holding, hidden, totalPledgedValue, marketDrop }) {
             transition={{ duration: 0.2 }}
           >
             <div style={{
-              padding: '0 16px 14px',
+              padding: '12px 16px 14px',
               borderTop: '1px solid var(--border)',
-              paddingTop: 12,
-              display: 'grid', gridTemplateColumns: '1fr 1fr',
-              gap: 12,
+              display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12,
             }}>
               {[
-                { label: 'UNITS', value: units.toFixed(3) },
-                { label: 'LTV CAP', value: `${(ltvCap * 100).toFixed(0)}%` },
-                { label: 'CURRENT NAV', value: hidden ? '••' : `₹${effectiveNav.toFixed(2)}` },
-                { label: 'ELIGIBLE CREDIT', value: hidden ? '••••' : fmtL(eligibleCredit) },
-                { label: 'ORIGINAL NAV', value: hidden ? '••' : `₹${nav.toFixed(2)}` },
-                {
-                  label: 'NAV CHANGE',
-                  value: `${navChange >= 0 ? '+' : ''}${navChange.toFixed(2)}%`,
-                  color: navChange >= 0 ? 'var(--jade)' : 'var(--red)',
-                },
+                { l: 'UNITS PLEDGED',   v: units.toFixed(3) },
+                { l: 'NAV AT PLEDGE',   v: hidden ? '••' : `₹${nav.toFixed(2)}` },
+                { l: 'PLEDGED VALUE',   v: hidden ? '••••' : fmtL(value) },
+                { l: 'ELIGIBLE CREDIT', v: hidden ? '••••' : fmtL(eligible) },
+                { l: 'PLEDGE REF',      v: pledge.pledge_ref_number || '—' },
+                { l: 'STATUS',          v: pledge.status || 'ACTIVE', color: 'var(--jade)' },
               ].map((d, i) => (
                 <div key={i}>
-                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '1.5px', marginBottom: 2 }}>
-                    {d.label}
-                  </p>
-                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: d.color || 'var(--text-primary)' }}>
-                    {d.value}
-                  </p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 8, color: 'var(--text-muted)', letterSpacing: '1.5px', marginBottom: 2 }}>{d.l}</p>
+                  <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: d.color || 'var(--text-primary)', wordBreak: 'break-all' }}>{d.v}</p>
                 </div>
               ))}
             </div>
-
-            {/* Bottom glow line */}
-            <div style={{
-              height: 2,
-              background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
-              opacity: 0.4,
-            }} />
+            <div style={{ height: 2, background: `linear-gradient(90deg, transparent, ${color}, transparent)`, opacity: 0.3 }} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -251,43 +184,48 @@ function HoldingCard({ holding, hidden, totalPledgedValue, marketDrop }) {
   )
 }
 
-// ── MAIN PORTFOLIO ────────────────────────────────────────────
 export default function Portfolio() {
-  const { ltvRatio, availableLimit, marketDrop } = useRiskState()
-  const [holdings, setHoldings]   = useState([])
-  const [pledges, setPledges]     = useState([])
-  const [summary, setSummary]     = useState(null)
-  const [hidden, setHidden]       = useState(false)
-  const [loading, setLoading]     = useState(true)
+  const { portfolio, setPortfolio, ltvHealth, setLTVHealth, creditAccount } = useStore()
+  const { ltvRatio: ctxLtv, availableLimit } = useRiskState()
+
+  const [pledges, setPledges]   = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [hidden,  setHidden]    = useState(false)
 
   useEffect(() => {
-    Promise.all([
-      getPortfolioSummary().catch(() => null),
-      getPledgeStatus().catch(() => null),
-    ]).then(([s, p]) => {
-      setSummary(s?.data || s)
-      const pledgeList = p?.data?.pledges || p?.pledges || []
-      setPledges(pledgeList)
-    }).finally(() => setLoading(false))
+    const load = async () => {
+      try {
+        const [portfolioRes, ltvRes, pledgeRes] = await Promise.all([
+          getPortfolioSummary().catch(() => null),
+          getLTVHealth().catch(() => null),
+          getPledgeStatus().catch(() => null),
+        ])
+
+        if (portfolioRes?.data) setPortfolio(portfolioRes.data)
+        if (ltvRes?.data)       setLTVHealth(ltvRes.data)
+
+        // API returns { data: { pledges: [...] } }
+        const pledgeList = pledgeRes?.data?.pledges || []
+        setPledges(pledgeList.filter(p => p.status === 'ACTIVE'))
+      } catch (_) {}
+      finally { setLoading(false) }
+    }
+    load()
   }, [])
 
-  // Combine pledge data with holding data for display
-  const pledgedItems = pledges.filter(p => p.status === 'ACTIVE')
-  const totalPledgedValue = pledgedItems.reduce((sum, p) => {
-    const nav   = parseFloat(p.nav_at_pledge || 0)
-    const units = parseFloat(p.units_pledged || 0)
-    const effectiveNav = nav * (1 - (marketDrop || 0) / 100)
-    return sum + (units * effectiveNav)
-  }, 0)
-
-  const totalPortfolioValue = parseFloat(summary?.total_portfolio_value || 0)
-  const marketDropLabel     = marketDrop > 0 ? `-${marketDrop}%` : null
+  const summary       = portfolio?.summary || {}
+  const totalValue    = parseFloat(summary.total_value || creditAccount?.credit_limit || 0)
+  const ltvRatio      = ltvHealth?.ltv_ratio || ctxLtv || 0
+  const outstanding   = parseFloat(creditAccount?.outstanding || 0)
+  const totalPledgedV = pledges.reduce((s, p) => s + parseFloat(p.value_at_pledge || 0), 0)
 
   if (loading) return (
     <div className="screen">
       <MarketTicker />
-      <div className="page-pad" style={{ paddingTop: 20 }}>
-        {[1,2,3].map(i => <div key={i} className="shimmer" style={{ height: 80, borderRadius: 18, marginBottom: 10 }} />)}
+      <div style={{ padding: '20px 20px 0' }}>
+        {[1,2,3].map(i => (
+          <div key={i} className="shimmer" style={{ height: 80, borderRadius: 18, marginBottom: 10 }} />
+        ))}
       </div>
     </div>
   )
@@ -296,19 +234,13 @@ export default function Portfolio() {
     <div className="screen">
       <MarketTicker />
 
-      <div className="page-pad" style={{ paddingTop: 20 }}>
+      <div style={{ padding: '20px 20px 0' }}>
 
         {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -8 }}
-          animate={{ opacity: 1, y: 0 }}
-          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}
-        >
+        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
-            <h1 style={{
-              fontFamily: 'var(--font-display)', fontSize: 30,
-              fontWeight: 800, letterSpacing: '-0.02em',
-            }}>Portfolio</h1>
+            <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400 }}>Portfolio</h1>
             <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>Collateral health</p>
           </div>
           <button
@@ -325,107 +257,80 @@ export default function Portfolio() {
         </motion.div>
 
         {/* Hero numbers */}
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.05 }}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.05 }}
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-light)',
-            borderRadius: 20, padding: '18px 20px', marginBottom: 16,
-          }}
-        >
+            background: 'var(--bg-surface)', border: '1px solid var(--border-light)',
+            borderRadius: 20, padding: '18px 20px', marginBottom: 14,
+          }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 4 }}>
-                PORTFOLIO VALUE
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 4 }}>PLEDGED VALUE</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 400 }}>
+                {hidden ? '••••••' : fmtL(totalPledgedV)}
               </p>
-              <p style={{
-                fontFamily: 'var(--font-display)', fontSize: 22,
-                fontWeight: 800, letterSpacing: '-0.02em',
-              }}>
-                {hidden ? '••••••' : fmtL(totalPortfolioValue * (1 - marketDrop / 100))}
-              </p>
-              {marketDropLabel && (
-                <span style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10,
-                  background: 'rgba(239,68,68,0.1)', color: 'var(--red)',
-                  padding: '2px 6px', borderRadius: 5, marginTop: 4, display: 'inline-block',
-                }}>
-                  ▼ {marketDropLabel}
-                </span>
-              )}
             </div>
             <div>
-              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 4 }}>
-                AVAILABLE CREDIT
-              </p>
-              <p style={{
-                fontFamily: 'var(--font-display)', fontSize: 22,
-                fontWeight: 800, color: 'var(--jade)', letterSpacing: '-0.02em',
-              }}>
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 4 }}>AVAILABLE CREDIT</p>
+              <p style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 400, color: 'var(--jade)' }}>
                 {hidden ? '••••••' : fmtL(availableLimit)}
               </p>
             </div>
           </div>
         </motion.div>
 
-        {/* LTV Bar */}
-        <motion.div
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
+        {/* LTV bar */}
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
           style={{
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border)',
-            borderRadius: 16, padding: '14px 16px', marginBottom: 16,
-          }}
-        >
+            background: 'var(--bg-surface)', border: '1px solid var(--border)',
+            borderRadius: 16, padding: '14px 16px', marginBottom: 14,
+          }}>
           <LTVBar ltvRatio={ltvRatio} />
 
-          {/* LTV Cap Badge */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 5,
-              background: 'var(--jade-dim)', border: '1px solid var(--jade-border)',
-              borderRadius: 8, padding: '4px 10px',
-            }}>
-              <span style={{ fontSize: 12 }}>↑</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--jade)', fontWeight: 600 }}>
-                LTV Cap: 40%
-              </span>
+          {outstanding > 0 && (
+            <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+              <div>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--text-muted)', marginBottom: 2 }}>OUTSTANDING</p>
+                <p style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--gold)' }}>
+                  {hidden ? '••••' : fmtL(outstanding)}
+                </p>
+              </div>
+              {ltvHealth?.message && (
+                <p style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1, lineHeight: 1.4 }}>
+                  {ltvHealth.message}
+                </p>
+              )}
             </div>
-          </div>
+          )}
         </motion.div>
 
-        {/* Risk Nudge */}
-        <div style={{ marginBottom: 16 }}>
+        {/* Risk nudge */}
+        <div style={{ marginBottom: 14 }}>
           <RiskNudgeBanner page="portfolio" variant="strip" />
         </div>
 
-        {/* Holdings */}
-        <p style={{
-          fontFamily: 'var(--font-mono)', fontSize: 9,
-          letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 10,
-        }}>
-          PLEDGED HOLDINGS ({pledgedItems.length})
+        {/* Holdings list */}
+        <p style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '2px', color: 'var(--text-muted)', marginBottom: 10 }}>
+          PLEDGED FUNDS ({pledges.length})
         </p>
 
-        {pledgedItems.length === 0 ? (
+        {pledges.length === 0 ? (
           <div style={{
             background: 'var(--bg-surface)', border: '1px solid var(--border)',
-            borderRadius: 18, padding: '40px 20px', textAlign: 'center',
+            borderRadius: 18, padding: '40px 20px', textAlign: 'center', marginBottom: 20,
           }}>
-            <p style={{ fontSize: 36, marginBottom: 10 }}>📊</p>
+            <p style={{ fontSize: 32, marginBottom: 10 }}>📊</p>
             <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>No pledged funds</p>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Your pledged holdings will appear here
+              Your pledged holdings will appear here after onboarding
             </p>
           </div>
         ) : (
-          pledgedItems.map((h, i) => (
-            <HoldingCard
-              key={h.pledge_id || i}
-              holding={h}
+          pledges.map((p, i) => (
+            <PledgeCard
+              key={p.pledge_id || i}
+              pledge={p}
               hidden={hidden}
-              totalPledgedValue={totalPledgedValue}
-              marketDrop={marketDrop}
+              totalValue={totalPledgedV}
             />
           ))
         )}

@@ -13,14 +13,17 @@ export default function NavBar() {
 
   return (
     <div className="bottom-nav">
+      {/* width:100% is the fix — without it the inner flex container collapses */}
       <div style={{
-        background: 'rgba(5,8,9,0.92)',
-        backdropFilter: 'blur(20px)',
+        width:                '100%',
+        background:           'rgba(5,8,9,0.95)',
+        backdropFilter:       'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop: '1px solid var(--border)',
-        padding: '8px 0 4px',
-        display: 'flex',
-        alignItems: 'center',
+        borderTop:            '1px solid var(--border)',
+        padding:              '8px 0 6px',
+        display:              'flex',
+        alignItems:           'center',
+        justifyContent:       'space-around',
       }}>
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id
@@ -29,31 +32,38 @@ export default function NavBar() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               style={{
-                flex: 1, display: 'flex', flexDirection: 'column',
-                alignItems: 'center', gap: 3,
-                padding: '6px 0',
-                position: 'relative',
+                flex:          1,
+                display:       'flex',
+                flexDirection: 'column',
+                alignItems:    'center',
+                gap:           3,
+                padding:       '6px 0 2px',
+                position:      'relative',
+                minWidth:      0,
               }}
             >
               {isActive && (
                 <motion.div
                   layoutId="nav-indicator"
                   style={{
-                    position: 'absolute', top: 0,
-                    width: 20, height: 2,
-                    background: 'var(--jade)',
+                    position:     'absolute',
+                    top:          0,
+                    width:        20,
+                    height:       2,
+                    background:   'var(--jade)',
                     borderRadius: 1,
                   }}
                 />
               )}
               {tab.icon(isActive)}
               <span style={{
-                fontSize: 9,
-                color: isActive ? 'var(--jade)' : 'var(--text-muted)',
-                fontWeight: isActive ? 600 : 400,
-                transition: 'color 0.2s',
+                fontSize:      9,
+                color:         isActive ? 'var(--jade)' : 'var(--text-muted)',
+                fontWeight:    isActive ? 600 : 400,
+                transition:    'color 0.2s',
                 letterSpacing: '0.3px',
-                fontFamily: 'var(--font-mono)',
+                fontFamily:    'var(--font-mono)',
+                marginTop:     1,
               }}>
                 {tab.label}
               </span>
