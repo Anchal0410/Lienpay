@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
@@ -20,86 +20,39 @@ const mapBackendStepToInternal = (s) => {
   return 'KYC'
 }
 
-// ── 4 realistic demo folios (for investor demo + fallback) ────
-const DEMO_HOLDINGS = [
-  {
-    folio_number: 'DEMO-NL001',
-    scheme_name:  'Nippon India Large Cap Fund - Direct Growth',
-    scheme_type:  'EQUITY_LARGE_CAP',
-    rta:          'CAMS',
-    current_value: 961641,
-    ltv_cap:      '40%',
-    is_eligible:  true,
-    eligible_credit: 384656,
-    isin:         'INF204K01G82',
-    amc_name:     'Nippon India',
-  },
-  {
-    folio_number: 'DEMO-HD002',
-    scheme_name:  'HDFC Large Cap Fund - Direct Growth',
-    scheme_type:  'EQUITY_LARGE_CAP',
-    rta:          'CAMS',
-    current_value: 498492,
-    ltv_cap:      '40%',
-    is_eligible:  true,
-    eligible_credit: 199397,
-    isin:         'INF179KB1DQ6',
-    amc_name:     'HDFC',
-  },
-  {
-    folio_number: 'DEMO-SB003',
-    scheme_name:  'SBI Large & Midcap Fund - Direct Growth',
-    scheme_type:  'EQUITY_LARGE_MID_CAP',
-    rta:          'KFINTECH',
-    current_value: 329590,
-    ltv_cap:      '35%',
-    is_eligible:  true,
-    eligible_credit: 115357,
-    isin:         'INF200K01RR3',
-    amc_name:     'SBI',
-  },
-  {
-    folio_number: 'DEMO-AX004',
-    scheme_name:  'Axis Liquid Fund - Direct Growth',
-    scheme_type:  'DEBT_LIQUID',
-    rta:          'CAMS',
-    current_value: 2000000,
-    ltv_cap:      '80%',
-    is_eligible:  true,
-    eligible_credit: 1600000,
-    isin:         'INF846K01EW2',
-    amc_name:     'Axis',
-  },
-]
-const DEMO_RISK = { approved_limit: 2299410, sanctioned_limit: 2299410, risk_tier: 'B', apr: 12, decision: 'APPROVED' }
-
-const TYPE_COLORS = {
-  EQUITY_LARGE_CAP: 'var(--jade)', EQUITY_MID_CAP: 'var(--amber)',
-  EQUITY_LARGE_MID_CAP: '#8B7BD4', EQUITY_SMALL_CAP: '#E05252',
-  EQUITY_FLEXI_CAP: '#8B7BD4', DEBT_SHORT_DUR: '#4DA8FF',
-  DEBT_LIQUID: '#06B6D4', HYBRID_BALANCED: 'var(--amber)',
+// ── LTV cap reference by category ────────────────────────────
+const LTV_CAPS = {
+  EQUITY_LARGE_CAP:      { pct: 40, label: 'Large Cap Equity',      color: '#00D4A1' },
+  EQUITY_LARGE_MID_CAP:  { pct: 35, label: 'Large & Mid Cap',       color: '#8B7BD4' },
+  EQUITY_MID_CAP:        { pct: 30, label: 'Mid Cap Equity',         color: '#C9A449' },
+  EQUITY_SMALL_CAP:      { pct: 25, label: 'Small Cap Equity',       color: '#E05252' },
+  EQUITY_FLEXI_CAP:      { pct: 35, label: 'Flexi Cap Equity',       color: '#8B7BD4' },
+  HYBRID_BALANCED:       { pct: 50, label: 'Balanced Hybrid',        color: '#C9A449' },
+  DEBT_SHORT_DUR:        { pct: 70, label: 'Short Duration Debt',    color: '#4DA8FF' },
+  DEBT_LIQUID:           { pct: 80, label: 'Liquid / Overnight',     color: '#06B6D4' },
 }
 
 const STEPS = [
-  { id: 'KYC',       title: 'Verify Identity',    icon: '🪪', sub: 'PAN & Aadhaar' },
-  { id: 'PORTFOLIO', title: 'Link Portfolio',      icon: '📊', sub: 'Connect mutual funds' },
-  { id: 'PLEDGE',    title: 'Select & Pledge',     icon: '🔒', sub: 'Choose which funds' },
-  { id: 'CREDIT',    title: 'Activate Credit',     icon: '✨', sub: 'Go live' },
+  { id: 'KYC',       title: 'Verify Identity',   icon: '🪪', sub: 'PAN & Aadhaar' },
+  { id: 'PORTFOLIO', title: 'Link Portfolio',     icon: '📊', sub: 'Connect mutual funds' },
+  { id: 'PLEDGE',    title: 'Select & Pledge',    icon: '🔒', sub: 'Choose which funds' },
+  { id: 'CREDIT',    title: 'Activate Credit',    icon: '✨', sub: 'Go live' },
 ]
 
 const fmtL = (n) => {
   const v = parseFloat(n || 0)
   return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
 }
+const fmtUnits = (n) => parseFloat(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 3 })
 
 const CTA = ({ onClick, loading, label, disabled }) => (
   <motion.button whileTap={{ scale: 0.97 }} onClick={onClick} disabled={loading || disabled}
     style={{
-      width: '100%', height: 54, borderRadius: 16,
+      width: '100%', height: 54, borderRadius: 16, border: 'none',
       background: (loading || disabled) ? 'var(--bg-elevated)' : 'linear-gradient(135deg, #00D4A1, #00A878)',
       color: (loading || disabled) ? 'var(--text-muted)' : '#000000',
       fontSize: 15, fontWeight: 700, fontFamily: 'var(--font-sans)',
-      border: 'none', cursor: (loading || disabled) ? 'not-allowed' : 'pointer',
+      cursor: (loading || disabled) ? 'not-allowed' : 'pointer',
       boxShadow: (loading || disabled) ? 'none' : '0 8px 24px rgba(0,212,161,0.2)',
     }}>
     {loading ? (
@@ -116,7 +69,7 @@ const Field = ({ label, id, value, onChange, placeholder, type = 'text', maxLeng
     <label htmlFor={id} style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500, display: 'block', marginBottom: 8 }}>{label}</label>
     <input id={id} name={id} type={type} inputMode={type === 'tel' ? 'numeric' : undefined}
       value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} maxLength={maxLength} autoComplete="off"
-      style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', fontSize: 15, fontFamily: type === 'tel' ? 'var(--font-mono)' : 'var(--font-sans)', color: 'var(--text-primary)' }}
+      style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: '1px solid var(--border-light)', fontSize: 15, fontFamily: type === 'tel' ? 'var(--font-mono)' : 'var(--font-sans)', color: 'var(--text-primary)', outline: 'none' }}
     />
   </div>
 )
@@ -128,6 +81,7 @@ export default function Onboarding({ onComplete }) {
   const [currentStep, setCurrentStep] = useState(resumeStep)
   const [subStep, setSubStep]         = useState(0)
   const [loading, setLoading]         = useState(false)
+  const verifyingRef = useRef(false)
 
   // KYC
   const [pan, setPan]               = useState('')
@@ -137,24 +91,27 @@ export default function Onboarding({ onComplete }) {
   const [aadhaarOTP, setAadhaarOTP] = useState('')
 
   // Portfolio
-  const [riskData, setRiskData]               = useState(null)
-  const [holdings, setHoldings]               = useState([])
-  const [selectedFolios, setSelectedFolios]   = useState([])
-  const [ltvOverrides, setLtvOverrides]       = useState({})
-  const [pledges, setPledges]                 = useState([])
+  const [riskData, setRiskData]             = useState(null)
+  const [holdings, setHoldings]             = useState([])
+  const [selectedFolios, setSelectedFolios] = useState([])
+  const [pledges, setPledges]               = useState([])
 
   const stepIndex = STEPS.findIndex(s => s.id === currentStep)
   const isResuming = resumeStep !== 'KYC' && onboardingStep && onboardingStep !== 'AUTH'
 
   const parseLtv = (h) => {
-    if (ltvOverrides[h.folio_number] !== undefined) return ltvOverrides[h.folio_number]
     const raw = h.ltv_cap
     if (typeof raw === 'string' && raw.includes('%')) return parseFloat(raw) / 100
     const num = parseFloat(raw || 0)
     return num > 1 ? num / 100 : num
   }
-  const calcEligible  = (h) => Math.round(parseFloat(h.eligible_credit || 0) || Math.round(parseFloat(h.current_value || 0) * parseLtv(h)))
-  const formatLtvPct  = (h) => `${(parseLtv(h) * 100).toFixed(0)}%`
+  const calcEligible  = (h) => Math.round(parseFloat(h.eligible_credit || 0) || Math.round(parseFloat(h.current_value || h.value_at_fetch || 0) * parseLtv(h)))
+  const fmtPct        = (h) => `${(parseLtv(h) * 100).toFixed(0)}%`
+  const calcUnits     = (h) => {
+    const val = parseFloat(h.current_value || h.value_at_fetch || 0)
+    const nav = parseFloat(h.current_nav || h.nav_at_fetch || 1)
+    return nav > 0 ? (val / nav) : 0
+  }
 
   const selectedEligible = holdings.filter(h => selectedFolios.includes(h.folio_number) && h.is_eligible)
   const selectedCredit   = selectedEligible.reduce((s, h) => s + calcEligible(h), 0)
@@ -169,61 +126,67 @@ export default function Onboarding({ onComplete }) {
       setAadhaarTxn(res.data.txn_id)
       const devOtp = res.data?.dev_otp || res.data?.otp
       if (devOtp) {
-        setAadhaarOTP(String(devOtp))
-        toast.success(`PAN verified! Aadhaar OTP: ${devOtp} (dev mode — auto-filled)`)
+        const otpStr = String(devOtp)
+        setAadhaarOTP(otpStr)
+        toast.success(`PAN verified! Aadhaar OTP: ${otpStr} (auto-filled)`)
+        setSubStep(1)
+        // ── FIX: auto-proceed just like mobile OTP ──
+        setTimeout(() => handleAadhaarVerifyWithOTP(res.data.txn_id, otpStr), 900)
       } else {
         toast.success('PAN verified! OTP sent to Aadhaar-linked mobile.')
+        setSubStep(1)
       }
-      setSubStep(1)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
   }
 
-  const handleAadhaarVerify = async () => {
-    if (!aadhaarOTP) return toast.error('Enter OTP')
+  const handleAadhaarVerifyWithOTP = async (txnId, otp) => {
+    if (verifyingRef.current) return
+    verifyingRef.current = true
     setLoading(true)
     try {
-      await verifyAadhaarOTP({ txn_id: aadhaarTxn, otp: aadhaarOTP })
+      await verifyAadhaarOTP({ txn_id: txnId, otp })
       await submitCKYC()
       await submitBureau()
       toast.success('KYC Complete! ✓')
       setCurrentStep('PORTFOLIO'); setSubStep(0)
     } catch (err) { toast.error(err.message) }
-    finally { setLoading(false) }
+    finally { setLoading(false); verifyingRef.current = false }
+  }
+
+  const handleAadhaarVerify = async () => {
+    if (!aadhaarOTP) return toast.error('Enter OTP')
+    await handleAadhaarVerifyWithOTP(aadhaarTxn, aadhaarOTP)
   }
 
   // ── PORTFOLIO ─────────────────────────────────────────────
-  // FIX: try real API, fall back to demo holdings so investor demo always works
   const handleLinkPortfolio = async () => {
     setLoading(true)
     try {
-      let fetchedHoldings = []
+      // Call real API to create DB records (needed for pledge/credit flow)
+      const consentRes   = await initiateAAConsent()
+      const portfolioRes = await fetchPortfolio(consentRes.data.consent_id)
+      const riskRes      = await evaluateRisk()
 
-      try {
-        const consentRes   = await initiateAAConsent()
-        const portfolioRes = await fetchPortfolio(consentRes.data.consent_id)
-        fetchedHoldings    = portfolioRes.data.holdings || []
-      } catch (e) {
-        // AA/portfolio fetch failed — use demo holdings
-        fetchedHoldings = DEMO_HOLDINGS
-        toast.success('Demo mode: loaded sample mutual fund portfolio')
-      }
+      const allHoldings     = portfolioRes.data.holdings || []
+      const eligibleHoldings = allHoldings.filter(h => h.is_eligible)
 
-      setHoldings(fetchedHoldings)
-      setSelectedFolios(fetchedHoldings.filter(h => h.is_eligible).map(h => h.folio_number))
+      // ── Show only top 4 by value for clean demo ──
+      const top4 = eligibleHoldings
+        .sort((a, b) => parseFloat(b.current_value || b.value_at_fetch || 0) - parseFloat(a.current_value || a.value_at_fetch || 0))
+        .slice(0, 4)
 
-      try {
-        const riskRes = await evaluateRisk()
-        setRiskData(riskRes.data)
-      } catch (e) {
-        // Risk eval failed — use demo risk
-        setRiskData(DEMO_RISK)
-      }
+      setHoldings(top4)
+      setSelectedFolios(top4.map(h => h.folio_number))
+      setRiskData(riskRes.data)
 
+      toast.success(`${top4.length} mutual funds loaded for pledging`)
       setSubStep(1)
-      toast.success(`${fetchedHoldings.filter(h => h.is_eligible).length} eligible funds found!`)
-    } catch (err) { toast.error(err.message) }
-    finally { setLoading(false) }
+    } catch (err) {
+      toast.error(err.message || 'Failed to link portfolio')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const toggleFolio = (folio) => {
@@ -235,38 +198,9 @@ export default function Onboarding({ onComplete }) {
     if (selectedFolios.length === 0) return toast.error('Select at least one fund')
     setLoading(true)
     try {
-      const folios  = selectedFolios.map(f => ({ folio_number: f, ltv_override: ltvOverrides[f] || undefined }))
-
-      // For demo holdings, generate mock pledges directly
-      const isDemoHolding = (folio) => folio.startsWith('DEMO-')
-      const demoFolios    = folios.filter(f => isDemoHolding(f.folio_number))
-      const realFolios    = folios.filter(f => !isDemoHolding(f.folio_number))
-
-      let allPledges = []
-
-      if (realFolios.length > 0) {
-        try {
-          const res = await initiatePledge(realFolios)
-          allPledges = [...allPledges, ...(res.data.pledges || [])]
-        } catch (e) { /* fall through to demo */ }
-      }
-
-      if (demoFolios.length > 0 || allPledges.length === 0) {
-        const demoPledges = selectedFolios.map((folio, i) => {
-          const holding = holdings.find(h => h.folio_number === folio)
-          return {
-            pledge_id:   `DEMO_PLEDGE_${i + 1}`,
-            folio_number: folio,
-            scheme_name: holding?.scheme_name || `Fund ${i + 1}`,
-            rta:         holding?.rta || 'CAMS',
-            units_pledged: 100,
-            value_at_pledge: holding?.current_value || 100000,
-          }
-        })
-        allPledges = [...allPledges, ...demoPledges.filter(p => !allPledges.find(r => r.folio_number === p.folio_number))]
-      }
-
-      setPledges(allPledges)
+      const folios = selectedFolios.map(f => ({ folio_number: f }))
+      const res    = await initiatePledge(folios)
+      setPledges(res.data.pledges)
       setSubStep(1)
     } catch (err) { toast.error(err.message) }
     finally { setLoading(false) }
@@ -277,13 +211,10 @@ export default function Onboarding({ onComplete }) {
     try {
       const confirmed = []
       for (const pledge of pledges) {
-        if (!pledge.pledge_id.startsWith('DEMO_')) {
-          try { await confirmPledgeOTP(pledge.pledge_id, pledge.rta === 'CAMS' ? '123456' : '654321') } catch(e) {}
-        }
+        await confirmPledgeOTP(pledge.pledge_id, pledge.rta === 'CAMS' ? '123456' : '654321')
         confirmed.push(pledge.pledge_id)
       }
-      const realIds = confirmed.filter(id => !id.startsWith('DEMO_'))
-      if (realIds.length > 0) { try { await notifyNBFC(realIds) } catch(e) {} }
+      await notifyNBFC(confirmed)
       toast.success('All pledges confirmed! ✓')
       setCurrentStep('CREDIT'); setSubStep(0)
     } catch (err) { toast.error(err.message) }
@@ -372,7 +303,7 @@ export default function Onboarding({ onComplete }) {
                   style={{ width: '100%', height: 52, borderRadius: 14, padding: '0 16px', background: 'var(--bg-surface)', border: `1px solid ${aadhaarOTP.length === 6 ? 'var(--jade)' : 'var(--border-light)'}`, fontSize: 22, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', letterSpacing: '0.3em', textAlign: 'center', outline: 'none' }}
                 />
               </div>
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20 }}>Dev mode: check server logs or auto-filled above</p>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 20 }}>Dev mode: auto-filled & auto-proceeding…</p>
               <CTA onClick={handleAadhaarVerify} loading={loading} label="Complete KYC →" disabled={aadhaarOTP.length !== 6} />
             </motion.div>
           )}
@@ -382,40 +313,24 @@ export default function Onboarding({ onComplete }) {
             <motion.div key="port0" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 20, padding: '24px 20px', marginBottom: 16, textAlign: 'center' }}>
                 <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ duration: 4, repeat: Infinity }} style={{ fontSize: 44, marginBottom: 12 }}>🔗</motion.div>
-                {/* ── FIX: "Mutual Fund" not "MF" ── */}
                 <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Connect your Mutual Fund Portfolio</p>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
                   We'll securely fetch your holdings via Account Aggregator and calculate your eligible credit limit.
                 </p>
                 <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '12px 14px', textAlign: 'left' }}>
                   <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 700, marginBottom: 4 }}>🧪 Dev / Demo Mode</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 10 }}>
-                    Mock Account Aggregator active — pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible mutual fund schemes</strong>. Real ISINs, live NAVs, correct LTV caps per SEBI category.
+                  <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>
+                    Mock Account Aggregator active — pulling from our curated universe of <strong style={{ color: 'var(--jade)' }}>38 eligible mutual fund schemes</strong>. We'll show you the top 4 funds for a clean demo experience.
                   </p>
-                  {/* ── Show 4 sample folios as a preview ── */}
-                  <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 8 }}>SAMPLE FOLIOS FROM YOUR PORTFOLIO</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {DEMO_HOLDINGS.map((h, i) => (
-                      <motion.div key={h.folio_number}
-                        initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.08 }}
-                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,212,161,0.04)', border: '1px solid rgba(0,212,161,0.1)', borderRadius: 10, padding: '8px 12px' }}>
-                        <div>
-                          <p style={{ fontSize: 11, fontWeight: 600, marginBottom: 1 }}>{h.scheme_name.split(' - ')[0]}</p>
-                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                            {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · {h.ltv_cap} LTV
-                          </p>
-                        </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{fmtL(h.eligible_credit)}</p>
-                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>eligible</p>
-                        </div>
-                      </motion.div>
+                  {/* LTV cap reference table */}
+                  <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 8 }}>LTV CAPS BY CATEGORY</p>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                    {Object.entries(LTV_CAPS).map(([key, val]) => (
+                      <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'rgba(0,0,0,0.2)', borderRadius: 6, padding: '4px 8px' }}>
+                        <span style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{val.label}</span>
+                        <span style={{ fontSize: 10, color: val.color, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{val.pct}%</span>
+                      </div>
                     ))}
-                    <div style={{ textAlign: 'center', paddingTop: 4 }}>
-                      <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                        Total eligible credit: {fmtL(DEMO_HOLDINGS.reduce((s, h) => s + h.eligible_credit, 0))}
-                      </p>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -423,7 +338,7 @@ export default function Onboarding({ onComplete }) {
             </motion.div>
           )}
 
-          {/* ── PORTFOLIO 1: Fund Selection ── */}
+          {/* ── PORTFOLIO 1: Fund Selection (top 4 only) ── */}
           {currentStep === 'PORTFOLIO' && subStep === 1 && (
             <motion.div key="port1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}
@@ -437,85 +352,148 @@ export default function Onboarding({ onComplete }) {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>SELECT MUTUAL FUNDS TO PLEDGE</p>
-                <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)' }}>{selectedFolios.length}/{holdings.filter(h => h.is_eligible).length} selected</p>
+                <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)' }}>{selectedFolios.length}/{holdings.length} selected</p>
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                {holdings.filter(h => h.is_eligible).map((h) => {
+                {holdings.map((h) => {
                   const isSelected = selectedFolios.includes(h.folio_number)
-                  const color      = TYPE_COLORS[h.scheme_type] || '#8888AA'
+                  const ltv        = Object.values(LTV_CAPS).find(c => c.label) // fallback
+                  const ltvPct     = (parseLtv(h) * 100).toFixed(0)
+                  const ltvColor   = LTV_CAPS[h.scheme_type]?.color || 'var(--jade)'
                   const eligible   = calcEligible(h)
+                  const value      = parseFloat(h.current_value || h.value_at_fetch || 0)
+
                   return (
                     <motion.div key={h.folio_number} whileTap={{ scale: 0.98 }}
                       onClick={() => toggleFolio(h.folio_number)}
-                      style={{ background: isSelected ? 'var(--jade-dim)' : 'var(--bg-surface)', border: `1px solid ${isSelected ? 'var(--jade-border)' : 'var(--border)'}`, borderRadius: 16, padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, transition: 'all 0.2s' }}>
-                      <div style={{ width: 22, height: 22, borderRadius: 8, flexShrink: 0, background: isSelected ? 'var(--jade)' : 'var(--bg-elevated)', border: `2px solid ${isSelected ? 'var(--jade)' : 'var(--border-light)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {isSelected && <span style={{ fontSize: 11, color: '#000', fontWeight: 800 }}>✓</span>}
+                      style={{ background: isSelected ? 'var(--jade-dim)' : 'var(--bg-surface)', border: `1px solid ${isSelected ? 'var(--jade-border)' : 'var(--border)'}`, borderRadius: 16, padding: '14px 16px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+                        <div style={{ width: 22, height: 22, borderRadius: 8, flexShrink: 0, background: isSelected ? 'var(--jade)' : 'var(--bg-elevated)', border: `2px solid ${isSelected ? 'var(--jade)' : 'var(--border-light)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {isSelected && <span style={{ fontSize: 11, color: '#000', fontWeight: 800 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{h.scheme_name}</p>
+                          <p style={{ fontSize: 9, color: ltvColor, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                            {h.scheme_type?.replace(/_/g, ' ')} · {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'}
+                          </p>
+                        </div>
                       </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{h.scheme_name}</p>
-                        <p style={{ fontSize: 9, color, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{h.scheme_type?.replace(/_/g, ' ')} · {fmtL(h.current_value || 0)}</p>
+                      {/* Value breakdown */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                        <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '6px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2 }}>VALUE</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtL(value)}</p>
+                        </div>
+                        <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '6px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2 }}>LTV CAP</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: ltvColor }}>{ltvPct}%</p>
+                        </div>
+                        <div style={{ background: isSelected ? 'rgba(0,212,161,0.15)' : 'rgba(0,0,0,0.2)', borderRadius: 8, padding: '6px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2 }}>ELIGIBLE</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{fmtL(eligible)}</p>
+                        </div>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                        <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--jade)', fontFamily: 'var(--font-mono)' }}>{fmtL(eligible)}</p>
-                        <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{formatLtvPct(h)} LTV</p>
-                      </div>
+                      {/* Calculation line */}
+                      <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, fontFamily: 'var(--font-mono)' }}>
+                        {fmtL(value)} × {ltvPct}% LTV = <span style={{ color: 'var(--jade)', fontWeight: 600 }}>{fmtL(eligible)} eligible credit</span>
+                      </p>
                     </motion.div>
                   )
                 })}
-                {holdings.filter(h => !h.is_eligible).length > 0 && (
-                  <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px', opacity: 0.5 }}>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>{holdings.filter(h => !h.is_eligible).length} mutual fund(s) not eligible</p>
-                    <p style={{ fontSize: 10, color: 'var(--text-hint)' }}>ELSS lock-in, existing pledge, or excluded category</p>
-                  </div>
-                )}
               </div>
+
               <CTA onClick={() => { setCurrentStep('PLEDGE'); setSubStep(0) }} loading={false} label="Continue to Pledge →" disabled={selectedFolios.length === 0} />
             </motion.div>
           )}
 
-          {/* ── PLEDGE 0: Confirm all funds ── */}
+          {/* ── PLEDGE 0: All selected funds with full detail ── */}
           {currentStep === 'PLEDGE' && subStep === 0 && (
             <motion.div key="pledge0" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 18px', marginBottom: 16 }}>
                 <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>What happens when you pledge?</p>
                 {['Your mutual fund units are lien-marked — not sold', 'Your investments keep growing as collateral', 'MF Central manages the pledge securely', 'Release anytime by closing your credit line'].map((item, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 8 }}>
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 8 }}>
                     <span style={{ color: 'var(--jade)', fontSize: 13, flexShrink: 0 }}>✓</span>
                     <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{item}</p>
                   </div>
                 ))}
               </div>
 
-              {/* ── FIX: Show ALL selected mutual funds ── */}
+              {/* All selected funds with full breakdown */}
               <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
                 MUTUAL FUNDS TO BE PLEDGED ({selectedFolios.length})
               </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-                {holdings.filter(h => selectedFolios.includes(h.folio_number)).map((h, i) => (
-                  <motion.div key={h.folio_number}
-                    initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}
-                    style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ flex: 1 }}>
-                        <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>
-                          {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · {h.scheme_type?.replace(/_/g, ' ')}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+                {holdings.filter(h => selectedFolios.includes(h.folio_number)).map((h, i) => {
+                  const value    = parseFloat(h.current_value || h.value_at_fetch || 0)
+                  const eligible = calcEligible(h)
+                  const units    = calcUnits(h)
+                  const nav      = parseFloat(h.current_nav || h.nav_at_fetch || 0)
+                  const ltvPct   = (parseLtv(h) * 100).toFixed(0)
+                  const ltvColor = LTV_CAPS[h.scheme_type]?.color || 'var(--jade)'
+
+                  return (
+                    <motion.div key={h.folio_number}
+                      initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
+                      style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 16, padding: '14px 16px' }}>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+                        <div style={{ flex: 1 }}>
+                          <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 3 }}>
+                            {h.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · {h.scheme_type?.replace(/_/g, ' ')}
+                          </p>
+                          <p style={{ fontSize: 14, fontWeight: 700 }}>{h.scheme_name}</p>
+                        </div>
+                        <div style={{ background: 'rgba(0,212,161,0.1)', borderRadius: 8, padding: '4px 10px', textAlign: 'center', marginLeft: 8, flexShrink: 0 }}>
+                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 1 }}>LTV CAP</p>
+                          <p style={{ fontSize: 16, fontWeight: 800, fontFamily: 'var(--font-mono)', color: ltvColor }}>{ltvPct}%</p>
+                        </div>
+                      </div>
+
+                      {/* 4-column breakdown */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 8 }}>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 3 }}>PORTFOLIO VALUE</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtL(value)}</p>
+                        </div>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 3 }}>UNITS</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{units > 0 ? fmtUnits(units) : '—'}</p>
+                        </div>
+                        <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 3 }}>NAV</p>
+                          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{nav > 0 ? `₹${nav.toFixed(2)}` : '—'}</p>
+                        </div>
+                        <div style={{ background: 'rgba(0,212,161,0.08)', border: '1px solid rgba(0,212,161,0.2)', borderRadius: 8, padding: '8px 10px' }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 3 }}>CREDIT</p>
+                          <p style={{ fontSize: 12, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{fmtL(eligible)}</p>
+                        </div>
+                      </div>
+
+                      {/* Calculation */}
+                      <div style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '7px 10px' }}>
+                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {fmtL(value)} portfolio × <span style={{ color: ltvColor }}>{ltvPct}% LTV</span> = <span style={{ color: 'var(--jade)', fontWeight: 700 }}>{fmtL(eligible)}</span> available credit
                         </p>
-                        <p style={{ fontSize: 13, fontWeight: 600 }}>{h.scheme_name}</p>
                       </div>
-                      <div style={{ textAlign: 'right', flexShrink: 0, paddingLeft: 12 }}>
-                        <p style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>{fmtL(h.current_value || 0)}</p>
-                        <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatLtvPct(h)} LTV</p>
-                        <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{fmtL(calcEligible(h))} eligible</p>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
+                    </motion.div>
+                  )
+                })}
               </div>
-              <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '14px 16px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--jade)' }}>Total eligible credit</p>
-                <p style={{ fontFamily: 'var(--font-display)', fontSize: 24, color: 'var(--jade)' }}>{fmtL(selectedCredit)}</p>
+
+              {/* Total */}
+              <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '16px 18px', marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>Total eligible credit</p>
+                  <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Based on {selectedFolios.length} pledged mutual fund{selectedFolios.length > 1 ? 's' : ''}
+                  </p>
+                </div>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 28, color: 'var(--jade)' }}>{fmtL(selectedCredit)}</p>
               </div>
+
               <CTA onClick={handleInitiatePledge} loading={loading} label="Initiate Pledge with RTA →" />
             </motion.div>
           )}
