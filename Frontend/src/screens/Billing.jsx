@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { getStatements, getRepayments, mockRepay, getTxnHistory, getCreditStatus } from '../api/client'
 import useStore from '../store/useStore'
@@ -8,36 +8,42 @@ const fmt = (n) => `₹${parseFloat(n || 0).toLocaleString('en-IN', { maximumFra
 const fmtDate  = (d) => { if (!d) return '—'; return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) }
 const fmtShort = (d) => { if (!d) return '—'; return new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) }
 
-// ── Donut circle indicator ────────────────────────────────────
-function OutstandingDonut({ outstanding, available, dueDate }) {
+// ── NBFC collection VPA ───────────────────────────────────────
+// In production this comes from the backend repayment API.
+// Hardcoded fallback matches process.env.NBFC_REPAYMENT_VPA on Railway.
+const NBFC_REPAYMENT_VPA = 'lienpay.repay@yesbank'
+const NBFC_NAME          = 'LienPay Repayment'
+
+// Build UPI deep-link — opens any UPI app (GPay, PhonePe, Paytm, BHIM…)
+const buildUPILink = (amount, ref) => {
+  const pa = encodeURIComponent(NBFC_REPAYMENT_VPA)
+  const pn = encodeURIComponent(NBFC_NAME)
+  const am = parseFloat(amount).toFixed(2)
+  const tn = encodeURIComponent(`LienPay Repayment ${ref}`)
+  return `upi://pay?pa=${pa}&pn=${pn}&am=${am}&tn=${tn}&cu=INR`
+}
+
+// ── Donut ─────────────────────────────────────────────────────
+function OutstandingDonut({ outstanding, available }) {
   const total = outstanding + available
   const pct   = total > 0 ? outstanding / total : 0
-  const r     = 52
-  const circ  = 2 * Math.PI * r
-  const dash  = pct * circ
-  const statusColor = outstanding === 0 ? 'var(--jade)' : pct > 0.7 ? '#EF4444' : pct > 0.4 ? '#F59E0B' : 'var(--jade)'
-
+  const r = 52, circ = 2 * Math.PI * r, dash = pct * circ
+  const c = outstanding === 0 ? 'var(--jade)' : pct > 0.7 ? '#F97316' : pct > 0.4 ? '#F59E0B' : 'var(--jade)'
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '20px 0 4px' }}>
       <div style={{ position: 'relative', width: 130, height: 130 }}>
         <svg width="130" height="130" viewBox="0 0 130 130">
-          {/* Track */}
           <circle cx="65" cy="65" r={r} fill="none" stroke="rgba(0,212,161,0.08)" strokeWidth="8"/>
-          {/* Used arc */}
-          <motion.circle cx="65" cy="65" r={r} fill="none" stroke={statusColor} strokeWidth="8"
+          <motion.circle cx="65" cy="65" r={r} fill="none" stroke={c} strokeWidth="8"
             strokeDasharray={`${dash} ${circ}`} strokeDashoffset={circ / 4} strokeLinecap="round"
-            initial={{ strokeDasharray: `0 ${circ}` }}
-            animate={{ strokeDasharray: `${dash} ${circ}` }}
+            initial={{ strokeDasharray: `0 ${circ}` }} animate={{ strokeDasharray: `${dash} ${circ}` }}
             transition={{ duration: 1.2, ease: 'easeOut', delay: 0.3 }}/>
         </svg>
-        {/* Center text */}
         <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
           <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '1px', marginBottom: 2 }}>OUTSTANDING</p>
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: outstanding > 99999 ? 16 : 20, color: statusColor, lineHeight: 1 }}>{fmt(outstanding)}</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: outstanding > 99999 ? 16 : 20, color: c, lineHeight: 1 }}>{fmt(outstanding)}</p>
         </div>
       </div>
-
-      {/* Available + Used labels */}
       <div style={{ display: 'flex', gap: 24, marginTop: 8 }}>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>AVAILABLE</p>
@@ -45,35 +51,272 @@ function OutstandingDonut({ outstanding, available, dueDate }) {
         </div>
         <div style={{ textAlign: 'center' }}>
           <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>USED</p>
-          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: outstanding > 0 ? statusColor : 'var(--text-secondary)' }}>{fmt(outstanding)}</p>
+          <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: outstanding > 0 ? c : 'var(--text-secondary)' }}>{fmt(outstanding)}</p>
         </div>
       </div>
     </div>
   )
 }
 
-// ── NACH Auto-pay entries ─────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// UPI REPAYMENT FLOW
+// Step 1 — show amount + "Pay via UPI" button
+// Step 2 — open upi:// deep link → user lands in GPay/PhonePe
+// Step 3 — user returns to app, sees "Did you pay?" confirmation
+// Step 4 — confirm → backend updated, credit restored
+// ─────────────────────────────────────────────────────────────
+function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
+  const [step, setStep] = useState('preview')   // preview | waiting | confirming
+  const [confirming, setConfirming] = useState(false)
+  const timerRef = useRef(null)
+
+  // Unique reference for this repayment attempt
+  const repayRef = useRef(`LP${Date.now().toString(36).toUpperCase()}`)
+  const upiLink  = buildUPILink(amount, repayRef.current)
+
+  const openUPIApp = () => {
+    setStep('waiting')
+    // Open UPI app — works on any Android/iOS UPI-capable device
+    window.location.href = upiLink
+
+    // After 3s, show the "Did you complete?" confirmation
+    // (user will have returned from UPI app by then, or can tap manually)
+    timerRef.current = setTimeout(() => setStep('confirm'), 3000)
+  }
+
+  // Cleanup timer on unmount
+  useEffect(() => () => clearTimeout(timerRef.current), [])
+
+  const handleConfirm = async () => {
+    setConfirming(true)
+    try {
+      await onConfirmed(amount)
+    } catch(e) {
+      toast.error('Could not confirm repayment. Contact support if amount was debited.')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(5px)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
+      onClick={step === 'preview' ? onClose : undefined}>
+
+      <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 320, damping: 38 }}
+        style={{ background: 'var(--bg-elevated)', borderRadius: '24px 24px 0 0', padding: '20px 20px 44px', width: '100%' }}
+        onClick={e => e.stopPropagation()}>
+
+        {/* Drag handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--bg-overlay)' }} />
+        </div>
+
+        <AnimatePresence mode="wait">
+
+          {/* ── STEP 1: Preview ── */}
+          {step === 'preview' && (
+            <motion.div key="preview" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 12 }}>
+                {isInterestOnly ? 'INTEREST PAYMENT' : 'CREDIT LINE REPAYMENT'}
+              </p>
+
+              {/* Amount card */}
+              <div style={{ background: 'linear-gradient(135deg, #0d1f17, #081510)', border: '1px solid rgba(0,212,161,0.18)', borderRadius: 20, padding: '22px 20px', marginBottom: 16, textAlign: 'center' }}>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Amount to pay</p>
+                <p style={{ fontFamily: 'var(--font-display)', fontSize: 44, color: 'var(--jade)', lineHeight: 1, marginBottom: 6 }}>{fmt(amount)}</p>
+                <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                  {isInterestOnly ? `Interest only · ${apr || 12}% APR revolving` : 'Full outstanding balance'}
+                </p>
+              </div>
+
+              {/* Payment destination */}
+              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 16px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay to</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{NBFC_NAME}</p>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI ID</p>
+                  <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{NBFC_REPAYMENT_VPA}</p>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reference</p>
+                  <p style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{repayRef.current}</p>
+                </div>
+              </div>
+
+              {/* Supported UPI app icons */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
+                <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>Opens via</p>
+                {['GPay', 'PhonePe', 'Paytm', 'BHIM'].map(app => (
+                  <span key={app} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, background: 'var(--bg-overlay)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{app}</span>
+                ))}
+              </div>
+
+              {/* Main CTA */}
+              <motion.button whileTap={{ scale: 0.97 }} onClick={openUPIApp}
+                style={{ width: '100%', height: 54, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 16, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {/* UPI logo mark */}
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <rect width="24" height="24" rx="6" fill="rgba(0,0,0,0.15)"/>
+                  <path d="M7 12h10M12 7l5 5-5 5" stroke="#000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                Pay {fmt(amount)} via UPI
+              </motion.button>
+
+              <motion.button whileTap={{ scale: 0.97 }} onClick={onClose}
+                style={{ width: '100%', height: 44, borderRadius: 14, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
+                Cancel
+              </motion.button>
+            </motion.div>
+          )}
+
+          {/* ── STEP 2: Waiting for UPI app ── */}
+          {step === 'waiting' && (
+            <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              style={{ textAlign: 'center', padding: '16px 0' }}>
+              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
+                style={{ width: 52, height: 52, borderRadius: '50%', border: '2.5px solid var(--jade-border)', borderTopColor: 'var(--jade)', margin: '0 auto 16px' }} />
+              <p style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Opening UPI app…</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 24 }}>
+                Complete the payment of {fmt(amount)} in your UPI app, then come back here.
+              </p>
+              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setStep('confirm')}
+                style={{ padding: '12px 28px', borderRadius: 14, background: 'var(--bg-overlay)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                I'm back — Confirm payment
+              </motion.button>
+            </motion.div>
+          )}
+
+          {/* ── STEP 3: Confirm ── */}
+          {step === 'confirm' && (
+            <motion.div key="confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              style={{ textAlign: 'center', padding: '8px 0' }}>
+
+              {/* Question icon */}
+              <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(0,212,161,0.08)', border: '1px solid rgba(0,212,161,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
+                  <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+              </div>
+
+              <p style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Did the payment go through?</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 8 }}>
+                Check your UPI app — if {fmt(amount)} was debited, tap confirm below.
+              </p>
+              <p style={{ fontSize: 11, color: 'var(--jade)', fontFamily: 'var(--font-mono)', marginBottom: 24 }}>
+                Ref: {repayRef.current}
+              </p>
+
+              {/* Confirm */}
+              <motion.button whileTap={{ scale: 0.97 }} onClick={handleConfirm} disabled={confirming}
+                style={{ width: '100%', height: 54, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {confirming ? (
+                  <>
+                    <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}>⟳</motion.span>
+                    Confirming…
+                  </>
+                ) : (
+                  <>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.8"><path d="M20 6L9 17L4 12"/></svg>
+                    Yes, Payment Successful
+                  </>
+                )}
+              </motion.button>
+
+              {/* Not paid — try again */}
+              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setStep('preview')}
+                style={{ width: '100%', height: 44, borderRadius: 14, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, border: 'none', cursor: 'pointer', marginBottom: 6 }}>
+                Payment failed — Try again
+              </motion.button>
+
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+                If debited but not reflecting, contact support with ref {repayRef.current}
+              </p>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
+      </motion.div>
+    </motion.div>
+  )
+}
+
+// ── Post-30-day plan card ─────────────────────────────────────
+function RepaymentPlanCard({ outstanding, apr, onRepay }) {
+  const [plan, setPlan] = useState('standard')
+  const stdApr     = apr || 12
+  const monthlyInt = outstanding * (18 / 12 / 100)
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+      style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 18, padding: '16px', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <p style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700 }}>FREE PERIOD ENDED — INTEREST IS ACCRUING</p>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>Choose your repayment plan:</p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+        {[
+          { id: 'standard', label: 'Pay Outstanding', badge: 'Recommended', sublabel: `${stdApr}% APR`, desc: 'Pay full amount. Clears balance entirely.', amount: outstanding, color: 'var(--jade)' },
+          { id: 'interest-only', label: 'Pay Interest Only', badge: 'Revolving', sublabel: '18% APR', desc: `Pay ${fmt(monthlyInt)} this month. Balance rolls forward.`, amount: monthlyInt, color: '#F59E0B' },
+        ].map(p => (
+          <div key={p.id} onClick={() => setPlan(p.id)}
+            style={{ background: plan === p.id ? `${p.color}10` : 'var(--bg-elevated)', border: `1.5px solid ${plan === p.id ? p.color : 'var(--border)'}`, borderRadius: 14, padding: '13px 14px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 13, right: 13, width: 18, height: 18, borderRadius: '50%', background: plan === p.id ? p.color : 'transparent', border: `2px solid ${plan === p.id ? p.color : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {plan === p.id && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#000' }} />}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4 }}>
+              <p style={{ fontSize: 13, fontWeight: 700, color: p.color }}>{p.label}</p>
+              <span style={{ fontSize: 9, background: `${p.color}18`, color: p.color, padding: '2px 7px', borderRadius: 5, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{p.badge}</span>
+            </div>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4, marginBottom: 7, paddingRight: 24 }}>{p.desc}</p>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.sublabel}</p>
+              <p style={{ fontSize: 16, fontWeight: 800, fontFamily: 'var(--font-mono)', color: p.color }}>{fmt(p.amount)}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+      <motion.button whileTap={{ scale: 0.97 }} onClick={() => onRepay(plan === 'standard' ? outstanding : monthlyInt, plan === 'interest-only')}
+        style={{ width: '100%', height: 50, borderRadius: 14, background: plan === 'standard' ? 'linear-gradient(135deg, var(--jade), #00A878)' : 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.8"><path d="M20 6L9 17L4 12"/></svg>
+        {plan === 'standard' ? `Pay ${fmt(outstanding)} via UPI` : `Pay ${fmt(monthlyInt)} via UPI`}
+      </motion.button>
+    </motion.div>
+  )
+}
+
+// ── NACH entries ──────────────────────────────────────────────
 const DEMO_AUTOPAY = [
-  { name: 'Netflix', category: 'Subscription', amount: 649, color: '#E05252', initials: 'NF', due: 'Apr 15' },
-  { name: 'Spotify', category: 'Music',        amount: 119, color: '#1DB954', initials: 'SP', due: 'Apr 18' },
-  { name: 'Gym',     category: 'Fitness',      amount: 1500, color: '#4DA8FF', initials: 'GY', due: 'Apr 1'  },
+  { name: 'Netflix',  category: 'Subscription', amount: 649,  color: '#00D4A1', initials: 'NF', due: 'Apr 15' },
+  { name: 'Spotify',  category: 'Music',        amount: 119,  color: '#8B7BD4', initials: 'SP', due: 'Apr 18' },
+  { name: 'Gym',      category: 'Fitness',      amount: 1500, color: '#4DA8FF', initials: 'GY', due: 'Apr 1'  },
 ]
 
+// ─────────────────────────────────────────────────────────────
+// BILLING SCREEN
+// ─────────────────────────────────────────────────────────────
 export default function Billing() {
   const { statements, setStatements, creditAccount, setCreditAccount } = useStore()
-  const [repayments, setRepayments] = useState([])
-  const [activeTxns, setActiveTxns] = useState([])
-  const [loading, setLoading]       = useState(true)
-  const [repaying, setRepaying]     = useState(false)
-  const [selected, setSelected]     = useState(null)
-  const [repayModal, setRepayModal] = useState(null)
-  const [customAmt, setCustomAmt]   = useState('')
-  const [nachSetup, setNachSetup]   = useState(false)
-  const [nachModal, setNachModal]   = useState(false)
+  const [repayments, setRepayments]       = useState([])
+  const [activeTxns, setActiveTxns]       = useState([])
+  const [overdueCount, setOverdueCount]   = useState(0)
+  const [loading, setLoading]             = useState(true)
+  const [selected, setSelected]           = useState(null)
+  const [customAmt, setCustomAmt]         = useState('')
+  const [nachSetup, setNachSetup]         = useState(false)
+  const [nachModal, setNachModal]         = useState(false)
+  // UPI repay modal state
+  const [upiModal, setUpiModal]           = useState(null) // { amount, isInterestOnly }
 
-  const outstanding = parseFloat(creditAccount?.outstanding || 0)
-  const available   = parseFloat(creditAccount?.available_credit || 0)
-  const dueDate     = creditAccount?.due_date
+  const outstanding  = parseFloat(creditAccount?.outstanding || 0)
+  const available    = parseFloat(creditAccount?.available_credit || 0)
+  const dueDate      = creditAccount?.due_date
+  const apr          = parseFloat(creditAccount?.apr || 12)
   const daysUntilDue = dueDate ? Math.max(0, Math.ceil((new Date(dueDate) - Date.now()) / 86400000)) : null
 
   useEffect(() => {
@@ -82,7 +325,11 @@ export default function Billing() {
       try { const res = await getRepayments(); setRepayments(Array.isArray(res.data) ? res.data : res.data?.repayments || []) } catch(e) {}
       try {
         const r = await getTxnHistory({ limit: 50 })
-        setActiveTxns((r.data?.transactions || []).filter(t => t.status === 'SETTLED' || t.status === 'PRE_AUTHORISED'))
+        const txns = (r.data?.transactions || []).filter(t => t.status === 'SETTLED' || t.status === 'PRE_AUTHORISED')
+        setActiveTxns(txns)
+        const now = Date.now()
+        const overdue = txns.filter(t => t.initiated_at && (now - new Date(t.initiated_at).getTime()) / 86400000 > 30).length
+        setOverdueCount(overdue)
       } catch(e) {}
       try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
       setLoading(false)
@@ -90,23 +337,29 @@ export default function Billing() {
     load()
   }, [])
 
-  const handleRepay = async (amount) => {
+  // Open UPI modal instead of directly calling mockRepay
+  const initiateRepay = (amount, isInterestOnly = false) => {
     if (!amount || amount <= 0) return toast.error('Enter a valid amount')
-    if (amount > outstanding) return toast.error(`Cannot repay more than ₹${fmt(outstanding)} outstanding`)
-    setRepaying(true)
-    try {
-      await mockRepay(amount)
-      toast.success(`${fmt(amount)} repaid! 🎉`)
-      setRepayModal(null); setSelected(null); setCustomAmt('')
-      const stmtRes = await getStatements(); setStatements(Array.isArray(stmtRes.data) ? stmtRes.data : stmtRes.data?.statements || [])
-      const repRes  = await getRepayments(); setRepayments(Array.isArray(repRes.data) ? repRes.data : repRes.data?.repayments || [])
-      const creditRes = await getCreditStatus(); setCreditAccount(creditRes.data)
-    } catch(err) { toast.error(err.message || 'Repayment failed') }
-    finally { setRepaying(false) }
+    if (amount > outstanding) return toast.error(`Cannot repay more than ${fmt(outstanding)}`)
+    setUpiModal({ amount, isInterestOnly })
   }
 
-  const safeStatements = Array.isArray(statements) ? statements : []
-  const freePeriodTxns = activeTxns.filter(t => t.is_in_free_period)
+  // Called after user confirms payment came through in UPI app
+  const handleUPIConfirmed = async (amount) => {
+    await mockRepay(amount)
+    setUpiModal(null)
+    setSelected(null)
+    setCustomAmt('')
+    toast.success(`${fmt(amount)} repaid! Credit restored 🎉`)
+    // Refresh all data
+    const stmtRes   = await getStatements(); setStatements(Array.isArray(stmtRes.data) ? stmtRes.data : stmtRes.data?.statements || [])
+    const repRes    = await getRepayments(); setRepayments(Array.isArray(repRes.data) ? repRes.data : repRes.data?.repayments || [])
+    const creditRes = await getCreditStatus(); setCreditAccount(creditRes.data)
+  }
+
+  const safeStatements  = Array.isArray(statements) ? statements : []
+  const freePeriodTxns  = activeTxns.filter(t => t.is_in_free_period)
+  const hasOverdueTxns  = overdueCount > 0 && outstanding > 0
 
   return (
     <div className="screen">
@@ -117,57 +370,55 @@ export default function Billing() {
           <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>Statements & repayments</p>
         </motion.div>
 
-        {/* Donut indicator */}
-        <OutstandingDonut outstanding={outstanding} available={available} dueDate={dueDate} />
+        <OutstandingDonut outstanding={outstanding} available={available} />
 
         {/* Status banner */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          style={{ background: outstanding === 0 ? 'rgba(0,212,161,0.06)' : daysUntilDue !== null && daysUntilDue <= 3 ? 'var(--red-dim)' : 'var(--amber-dim)', border: `1px solid ${outstanding === 0 ? 'rgba(0,212,161,0.12)' : daysUntilDue !== null && daysUntilDue <= 3 ? 'rgba(239,68,68,0.25)' : 'rgba(245,158,11,0.2)'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+          style={{ background: outstanding === 0 ? 'rgba(0,212,161,0.06)' : 'var(--amber-dim)', border: `1px solid ${outstanding === 0 ? 'rgba(0,212,161,0.12)' : 'rgba(245,158,11,0.2)'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 28, height: 28, borderRadius: 9, background: outstanding === 0 ? 'rgba(0,212,161,0.12)' : 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={outstanding === 0 ? 'var(--jade)' : '#F59E0B'} strokeWidth="2.5">
-              {outstanding === 0 ? <><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> : <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>}
+              {outstanding === 0 ? <><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> : <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="17" x2="12.01" y2="17"/></>}
             </svg>
           </div>
           <p style={{ fontSize: 12, color: outstanding === 0 ? 'var(--jade)' : '#F59E0B', fontWeight: 600 }}>
-            {outstanding === 0 ? 'No immediate repayment pressure' : daysUntilDue !== null && daysUntilDue <= 3 ? `Due in ${daysUntilDue} days — pay to avoid interest` : `${fmt(outstanding)} outstanding · Due ${fmtDate(dueDate)}`}
+            {outstanding === 0 ? 'No immediate repayment pressure' : hasOverdueTxns ? `Interest accruing · ${fmt(outstanding)} outstanding` : `${fmt(outstanding)} outstanding · Due ${fmtDate(dueDate)}`}
           </p>
         </motion.div>
 
-        {/* Repay section */}
-        {outstanding > 0 && (
+        {/* Post-30-day plan */}
+        {hasOverdueTxns && outstanding > 0 && (
+          <RepaymentPlanCard outstanding={outstanding} apr={apr} onRepay={initiateRepay} />
+        )}
+
+        {/* Standard repay */}
+        {outstanding > 0 && !hasOverdueTxns && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
-            {/* Full repay button */}
-            <motion.button whileTap={{ scale: 0.97 }} disabled={repaying}
-              onClick={() => handleRepay(outstanding)}
-              style={{ width: '100%', height: 50, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)', marginBottom: 10, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.5"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.08-4"/></svg>
-              {repaying ? 'Processing…' : `Repay Full ${fmt(outstanding)}`}
+            {/* Full repay */}
+            <motion.button whileTap={{ scale: 0.97 }} onClick={() => initiateRepay(outstanding)}
+              style={{ width: '100%', height: 54, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-sans)', marginBottom: 10, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.8"><path d="M20 6L9 17L4 12"/></svg>
+              Repay {fmt(outstanding)} via UPI
             </motion.button>
 
-            {/* Custom amount input */}
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            {/* Custom amount */}
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
               <div style={{ flex: 1, display: 'flex', alignItems: 'center', background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '0 14px' }}>
                 <span style={{ fontSize: 15, color: 'var(--text-muted)', marginRight: 4 }}>₹</span>
                 <input type="number" inputMode="numeric" placeholder="Custom amount"
                   value={customAmt} onChange={e => setCustomAmt(e.target.value)}
                   style={{ flex: 1, height: 46, fontSize: 14, fontFamily: 'var(--font-mono)', background: 'transparent', border: 'none', outline: 'none', color: 'var(--text-primary)' }} />
               </div>
-              <motion.button whileTap={{ scale: 0.96 }} disabled={repaying || !customAmt}
-                onClick={() => handleRepay(parseFloat(customAmt))}
+              <motion.button whileTap={{ scale: 0.96 }} disabled={!customAmt}
+                onClick={() => initiateRepay(parseFloat(customAmt))}
                 style={{ width: 70, height: 46, borderRadius: 14, background: customAmt ? 'var(--jade)' : 'var(--bg-elevated)', border: `1px solid ${customAmt ? 'transparent' : 'var(--border)'}`, color: customAmt ? '#000' : 'var(--text-muted)', fontSize: 13, fontWeight: 700, cursor: customAmt ? 'pointer' : 'not-allowed' }}>
                 Pay
               </motion.button>
             </div>
 
-            {/* Free period callout */}
             {freePeriodTxns.length > 0 && (
-              <div style={{ background: 'rgba(0,212,161,0.06)', border: '1px solid rgba(0,212,161,0.12)', borderRadius: 12, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                </svg>
-                <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 600 }}>
-                  {freePeriodTxns.length} txn{freePeriodTxns.length > 1 ? 's' : ''} in free period — interest-free until {fmtDate(dueDate)}
-                </p>
+              <div style={{ background: 'rgba(0,212,161,0.06)', border: '1px solid rgba(0,212,161,0.12)', borderRadius: 12, padding: '10px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 600 }}>{freePeriodTxns.length} txn{freePeriodTxns.length > 1 ? 's' : ''} interest-free until {fmtDate(dueDate)}</p>
               </div>
             )}
           </motion.div>
@@ -176,27 +427,21 @@ export default function Billing() {
         {/* Statements */}
         {loading ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
-            {[1, 2].map(i => <div key={i} className="shimmer" style={{ height: 100, borderRadius: 16 }} />)}
+            {[1,2].map(i => <div key={i} className="shimmer" style={{ height: 100, borderRadius: 16 }} />)}
           </div>
         ) : safeStatements.length === 0 ? (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-            style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '32px 24px', textAlign: 'center', marginBottom: 16 }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 10px', display: 'block' }}>
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
-            </svg>
-            <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>No statements yet</p>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.6 }}>Statements generate at end of your billing cycle.</p>
-          </motion.div>
+          <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '32px 24px', textAlign: 'center', marginBottom: 16 }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 10px', display: 'block' }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <p style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No statements yet</p>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)' }}>Statements generate at end of your billing cycle.</p>
+          </div>
         ) : (
           <>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>PAST STATEMENTS</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
               {safeStatements.map((stmt, i) => (
-                <motion.div key={stmt.statement_id || i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.06 }}
-                  style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
-                  <div onClick={() => setSelected(selected === stmt.statement_id ? null : stmt.statement_id)}
-                    style={{ padding: '14px 16px', cursor: 'pointer' }}>
+                <div key={stmt.statement_id || i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden' }}>
+                  <div onClick={() => setSelected(selected === stmt.statement_id ? null : stmt.statement_id)} style={{ padding: '14px 16px', cursor: 'pointer' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
                       <div>
                         <p style={{ fontSize: 13, fontWeight: 700, marginBottom: 2 }}>{fmtShort(stmt.billing_period_start)} – {fmtShort(stmt.billing_period_end)}</p>
@@ -208,7 +453,7 @@ export default function Billing() {
                       </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                      {[{ l: 'Spent', v: fmt(stmt.total_spend || stmt.total_drawdowns || 0) }, { l: 'Interest', v: fmt(stmt.total_interest || stmt.interest_charged || 0) }, { l: 'Min Due', v: fmt(stmt.minimum_amount_due || stmt.minimum_due || 0) }].map((s, j) => (
+                      {[{l:'Spent',v:fmt(stmt.total_drawdowns||0)},{l:'Interest',v:fmt(stmt.interest_charged||0)},{l:'Min Due',v:fmt(stmt.minimum_due||0)}].map((s,j) => (
                         <div key={j} style={{ background: 'var(--bg-elevated)', borderRadius: 9, padding: '7px 9px' }}>
                           <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2 }}>{s.l.toUpperCase()}</p>
                           <p style={{ fontSize: 12, fontWeight: 700 }}>{s.v}</p>
@@ -221,13 +466,13 @@ export default function Billing() {
                       <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }}
                         style={{ borderTop: '1px solid var(--border)', padding: '12px 16px', background: 'var(--bg-elevated)' }}>
                         <div style={{ display: 'flex', gap: 8 }}>
-                          <motion.button whileTap={{ scale: 0.96 }} disabled={repaying}
-                            onClick={e => { e.stopPropagation(); handleRepay(parseFloat(stmt.minimum_amount_due || stmt.minimum_due || 0)) }}
+                          <motion.button whileTap={{ scale: 0.96 }}
+                            onClick={e => { e.stopPropagation(); initiateRepay(parseFloat(stmt.minimum_due||0)) }}
                             style={{ flex: 1, height: 42, borderRadius: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-                            Min {fmt(stmt.minimum_amount_due || stmt.minimum_due || 0)}
+                            Min {fmt(stmt.minimum_due||0)}
                           </motion.button>
-                          <motion.button whileTap={{ scale: 0.96 }} disabled={repaying}
-                            onClick={e => { e.stopPropagation(); handleRepay(parseFloat(stmt.total_due)) }}
+                          <motion.button whileTap={{ scale: 0.96 }}
+                            onClick={e => { e.stopPropagation(); initiateRepay(parseFloat(stmt.total_due)) }}
                             style={{ flex: 1, height: 42, borderRadius: 12, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
                             Full {fmt(stmt.total_due)}
                           </motion.button>
@@ -235,20 +480,17 @@ export default function Billing() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </motion.div>
+                </div>
               ))}
             </div>
           </>
         )}
 
-        {/* NACH Auto-pay section */}
+        {/* NACH */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>AUTO-PAY</p>
-            <motion.button whileTap={{ scale: 0.96 }} onClick={() => setNachModal(true)}
-              style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>
-              {nachSetup ? 'MANAGE' : 'SET UP'}
-            </motion.button>
+            <motion.button whileTap={{ scale: 0.96 }} onClick={() => setNachModal(true)} style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 700, background: 'none', border: 'none', cursor: 'pointer' }}>{nachSetup ? 'MANAGE' : 'SET UP'}</motion.button>
           </div>
           <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden' }}>
             {DEMO_AUTOPAY.map((item, i) => (
@@ -269,16 +511,11 @@ export default function Billing() {
           </div>
         </div>
 
-        {/* Interest info pills */}
+        {/* Info pills */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 24 }}>
-          {[
-            { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: '30 days', sub: 'Interest-free' },
-            { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>, label: '1%/mo', sub: 'After due date' },
-            { icon: <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.08-4"/></svg>, label: 'Flexible', sub: 'Repay anytime' },
-          ].map((item, i) => (
+          {[{ label: '30 days', sub: 'Interest-free' }, { label: `${apr}% APR`, sub: 'After due date' }, { label: 'Flexible', sub: 'Repay anytime' }].map((item, i) => (
             <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
-              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 6 }}>{item.icon}</div>
-              <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>{item.label}</p>
+              <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 2, color: 'var(--jade)' }}>{item.label}</p>
               <p style={{ fontSize: 9, color: 'var(--text-muted)' }}>{item.sub}</p>
             </div>
           ))}
@@ -286,7 +523,7 @@ export default function Billing() {
 
         {/* Repayment history */}
         {repayments.length > 0 && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <div>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 10, fontFamily: 'var(--font-mono)' }}>REPAYMENT HISTORY</p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {repayments.slice(0, 8).map((r, i) => (
@@ -307,13 +544,12 @@ export default function Billing() {
                 </div>
               ))}
             </div>
-          </motion.div>
+          </div>
         )}
-
         <div style={{ height: 20 }} />
       </div>
 
-      {/* NACH Setup Modal */}
+      {/* NACH Modal */}
       <AnimatePresence>
         {nachModal && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -323,18 +559,8 @@ export default function Billing() {
               style={{ background: 'var(--bg-elevated)', borderRadius: '24px 24px 0 0', padding: '24px 20px 44px', width: '100%' }}
               onClick={e => e.stopPropagation()}>
               <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', marginBottom: 6, fontFamily: 'var(--font-mono)' }}>NACH AUTO-PAY MANDATE</p>
-              <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 4 }}>Setup Auto-Repayment</p>
-              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 20 }}>
-                NACH mandate allows LienPay to automatically debit your bank account for minimum due amounts on the due date. You can cancel anytime.
-              </p>
-              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px', marginBottom: 20 }}>
-                {[{ label: 'Mandate Type', value: 'NACH (National Automated Clearing House)' }, { label: 'Debit Amount', value: 'Minimum due on statement date' }, { label: 'Debit Date', value: 'Due date of each billing cycle' }, { label: 'Bank', value: 'Linked bank account' }].map((r, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: i < 3 ? 10 : 0 }}>
-                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{r.label}</p>
-                    <p style={{ fontSize: 11, fontWeight: 600, textAlign: 'right', maxWidth: '55%' }}>{r.value}</p>
-                  </div>
-                ))}
-              </div>
+              <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>Setup Auto-Repayment</p>
+              <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 20 }}>NACH mandate allows automatic debit of minimum due on your due date.</p>
               <motion.button whileTap={{ scale: 0.97 }} onClick={() => { setNachSetup(true); setNachModal(false); toast.success('NACH mandate registered!') }}
                 style={{ width: '100%', height: 52, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)', marginBottom: 10, border: 'none', cursor: 'pointer' }}>
                 Register NACH Mandate →
@@ -343,6 +569,19 @@ export default function Billing() {
                 style={{ width: '100%', height: 44, borderRadius: 14, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, border: 'none', cursor: 'pointer' }}>Cancel</motion.button>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* UPI Repayment Modal */}
+      <AnimatePresence>
+        {upiModal && (
+          <UPIRepayModal
+            amount={upiModal.amount}
+            apr={apr}
+            isInterestOnly={upiModal.isInterestOnly}
+            onConfirmed={handleUPIConfirmed}
+            onClose={() => setUpiModal(null)}
+          />
         )}
       </AnimatePresence>
     </div>

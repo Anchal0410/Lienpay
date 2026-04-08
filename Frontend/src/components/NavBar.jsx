@@ -13,63 +13,70 @@ export default function NavBar() {
 
   return (
     <div className="bottom-nav">
-      {/* width:100% is the fix — without it the inner flex container collapses */}
+      {/*
+        FIX: background must be on the OUTER wrapper, not just the inner content div.
+        The outer .bottom-nav has padding-bottom: safe-area-inset-bottom — if the
+        background is only on the inner div, you see the page through that padding gap.
+      */}
       <div style={{
-        width:                '100%',
-        background:           'rgba(5,8,9,0.95)',
-        backdropFilter:       'blur(20px)',
+        background: 'rgba(5,8,9,0.97)',      // ← outer bg fills safe area gap
+        backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
-        borderTop:            '1px solid var(--border)',
-        padding:              '8px 0 6px',
-        display:              'flex',
-        alignItems:           'center',
-        justifyContent:       'space-around',
+        borderTop: '1px solid var(--border)',
       }}>
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              style={{
-                flex:          1,
-                display:       'flex',
-                flexDirection: 'column',
-                alignItems:    'center',
-                gap:           3,
-                padding:       '6px 0 2px',
-                position:      'relative',
-                minWidth:      0,
-              }}
-            >
-              {isActive && (
-                <motion.div
-                  layoutId="nav-indicator"
-                  style={{
-                    position:     'absolute',
-                    top:          0,
-                    width:        20,
-                    height:       2,
-                    background:   'var(--jade)',
-                    borderRadius: 1,
-                  }}
-                />
-              )}
-              {tab.icon(isActive)}
-              <span style={{
-                fontSize:      9,
-                color:         isActive ? 'var(--jade)' : 'var(--text-muted)',
-                fontWeight:    isActive ? 600 : 400,
-                transition:    'color 0.2s',
-                letterSpacing: '0.3px',
-                fontFamily:    'var(--font-mono)',
-                marginTop:     1,
-              }}>
-                {tab.label}
-              </span>
-            </button>
-          )
-        })}
+        {/* Content row */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          paddingTop: 8,
+          paddingBottom: 6,
+        }}>
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                style={{
+                  flex: 1, display: 'flex', flexDirection: 'column',
+                  alignItems: 'center', gap: 3,
+                  padding: '4px 0',
+                  position: 'relative',
+                }}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="nav-indicator"
+                    style={{
+                      position: 'absolute', top: 0,
+                      width: 20, height: 2,
+                      background: 'var(--jade)',
+                      borderRadius: 1,
+                    }}
+                  />
+                )}
+                {tab.icon(isActive)}
+                <span style={{
+                  fontSize: 9,
+                  color: isActive ? 'var(--jade)' : 'var(--text-muted)',
+                  fontWeight: isActive ? 600 : 400,
+                  transition: 'color 0.2s',
+                  letterSpacing: '0.3px',
+                  fontFamily: 'var(--font-mono)',
+                }}>
+                  {tab.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Safe area fill — explicit bg so no gap shows on devices with home indicator */}
+        <div style={{
+          height: 'env(safe-area-inset-bottom, 0px)',
+          background: 'rgba(5,8,9,0.97)',
+          minHeight: 0,
+        }} />
       </div>
     </div>
   )

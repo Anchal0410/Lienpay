@@ -18,11 +18,17 @@ const rtaLabel = (rta) => {
   return 'MF Central'
 }
 
+// Fund category colors — all distinct, NO red (red = alarm signal, not appropriate for fund types)
+// Palette: jade (green), teal, sky-blue, royal-blue, lavender, purple, gold, amber
 const SCHEME_COLORS = {
-  EQUITY_LARGE_CAP: 'var(--jade)', EQUITY_MID_CAP: '#C9A449',
-  EQUITY_LARGE_MID_CAP: '#8B7BD4', EQUITY_SMALL_CAP: '#C9A449',
-  EQUITY_FLEXI_CAP: '#8B7BD4', DEBT_SHORT_DUR: '#3B82F6',
-  DEBT_LIQUID: '#06B6D4', HYBRID_BALANCED: '#F59E0B',
+  EQUITY_LARGE_CAP:     '#00D4A1',   // jade — large cap is the "flagship" category
+  EQUITY_LARGE_MID_CAP: '#06B6D4',   // teal — between large and mid
+  EQUITY_MID_CAP:       '#C9A449',   // gold — moderate growth
+  EQUITY_SMALL_CAP:     '#F97316',   // orange — higher volatility, amber warning (not red)
+  EQUITY_FLEXI_CAP:     '#8B7BD4',   // purple — flexible mandate
+  DEBT_SHORT_DUR:       '#3B82F6',   // royal blue — short duration debt
+  DEBT_LIQUID:          '#60A5FA',   // sky blue — liquid/overnight (safest)
+  HYBRID_BALANCED:      '#A78BFA',   // lavender — balanced/hybrid
 }
 
 export default function Portfolio() {
