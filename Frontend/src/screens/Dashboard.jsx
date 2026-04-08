@@ -3,47 +3,41 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
+import { TICKER_HEIGHT } from '../App'
 
 const fmt  = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 const fmtL = (n) => { const v = parseFloat(n || 0); return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}` }
-
-const getGreeting = () => {
-  const h = new Date().getHours()
-  if (h >= 5 && h < 12) return 'Good morning'
-  if (h >= 12 && h < 17) return 'Good afternoon'
-  if (h >= 17 && h < 21) return 'Good evening'
-  return 'Good night'
-}
+const getGreeting = () => { const h = new Date().getHours(); if (h >= 5 && h < 12) return 'Good morning'; if (h >= 12 && h < 17) return 'Good afternoon'; if (h >= 17 && h < 21) return 'Good evening'; return 'Good night' }
 
 // ─────────────────────────────────────────────────────────────
-// NOTIFICATION BELL + PANEL
+// NOTIFICATION BELL
+// Panel renders as fixed overlay so it never bleeds into content
 // ─────────────────────────────────────────────────────────────
 function NotificationBell({ creditAccount, ltvHealth }) {
   const [open, setOpen] = useState(false)
+  const bellRef = useRef(null)
 
-  const outstanding = parseFloat(creditAccount?.outstanding || 0)
-  const creditLimit = parseFloat(creditAccount?.credit_limit || 0)
-  const ltvRatio    = parseFloat(ltvHealth?.ltv_ratio || 0)
-  const dueDate     = creditAccount?.due_date
+  const outstanding  = parseFloat(creditAccount?.outstanding || 0)
+  const ltvRatio     = parseFloat(ltvHealth?.ltv_ratio || 0)
+  const dueDate      = creditAccount?.due_date
   const daysUntilDue = dueDate ? Math.max(0, Math.ceil((new Date(dueDate) - Date.now()) / 86400000)) : null
 
-  // Build notification list
   const notifications = []
 
   if (ltvRatio >= 90) {
     notifications.push({
-      id: 'margin-call', type: 'critical',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
+      id: 'margin', type: 'critical',
+      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
       title: 'Margin Call Active',
-      body: `LTV at ${ltvRatio.toFixed(1)}%. Add collateral or repay ₹${fmt(ltvHealth?.shortfall || 0)} immediately.`,
+      body: `LTV at ${ltvRatio.toFixed(1)}% — add collateral or repay immediately.`,
       time: 'Now', color: '#EF4444',
     })
   } else if (ltvRatio >= 80) {
     notifications.push({
       id: 'ltv-watch', type: 'warning',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
       title: 'LTV Watch Zone',
-      body: `Portfolio at ${ltvRatio.toFixed(1)}% utilisation. Consider adding funds.`,
+      body: `Portfolio at ${ltvRatio.toFixed(1)}% — consider adding funds.`,
       time: 'Today', color: '#F59E0B',
     })
   }
@@ -51,8 +45,8 @@ function NotificationBell({ creditAccount, ltvHealth }) {
   if (outstanding > 0 && daysUntilDue !== null && daysUntilDue <= 7) {
     notifications.push({
       id: 'due-soon', type: daysUntilDue <= 2 ? 'critical' : 'warning',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 2 ? '#EF4444' : '#F59E0B'} strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-      title: `Payment Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
+      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 2 ? '#EF4444' : '#F59E0B'} strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      title: `Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
       body: `₹${fmt(outstanding)} outstanding. Pay to keep interest-free status.`,
       time: `${daysUntilDue}d left`, color: daysUntilDue <= 2 ? '#EF4444' : '#F59E0B',
     })
@@ -60,8 +54,8 @@ function NotificationBell({ creditAccount, ltvHealth }) {
 
   if (outstanding > 0 && ltvRatio > 0 && ltvRatio < 80) {
     notifications.push({
-      id: 'ltv-healthy', type: 'info',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+      id: 'healthy', type: 'info',
+      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       title: 'Portfolio Healthy',
       body: `LTV at ${ltvRatio.toFixed(1)}% — well within safe zone. Collateral is secure.`,
       time: 'Today', color: 'var(--jade)',
@@ -70,76 +64,89 @@ function NotificationBell({ creditAccount, ltvHealth }) {
 
   if (creditAccount?.upi_vpa) {
     notifications.push({
-      id: 'clou-active', type: 'info',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>,
+      id: 'clou', type: 'info',
+      icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>,
       title: 'CLOU Credit Active',
-      body: `${fmtL(creditAccount?.available_credit)} available · UPI: ${creditAccount?.upi_vpa}`,
+      body: `₹${fmtL(creditAccount?.available_credit)} available · UPI: ${creditAccount?.upi_vpa}`,
       time: 'Active', color: 'var(--jade)',
     })
   }
 
-  // Bell color based on severity
   const bellColor = notifications.some(n => n.type === 'critical') ? '#EF4444'
-    : notifications.some(n => n.type === 'warning') ? '#F59E0B'
-    : 'var(--jade)'
-
+    : notifications.some(n => n.type === 'warning') ? '#F59E0B' : 'var(--jade)'
   const hasUnread = notifications.length > 0
 
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return
+    const handler = (e) => { if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false) }
+    setTimeout(() => document.addEventListener('mousedown', handler), 0)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div ref={bellRef} style={{ position: 'relative', zIndex: 400 }}>
       <motion.button whileTap={{ scale: 0.88 }} onClick={() => setOpen(o => !o)}
         style={{ width: 40, height: 40, borderRadius: 13, background: open ? 'rgba(0,212,161,0.1)' : 'var(--bg-surface)', border: `1px solid ${open ? 'var(--jade-border)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
-        {/* Bell icon */}
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={bellColor} strokeWidth="2" strokeLinecap="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
-        {/* Unread dot */}
         {hasUnread && (
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}
             style={{ position: 'absolute', top: 7, right: 8, width: 7, height: 7, borderRadius: '50%', background: bellColor, border: '1.5px solid var(--bg-base)' }} />
         )}
       </motion.button>
 
-      {/* Notification panel */}
+      {/* ── Panel: fixed positioning so it NEVER overlaps the screen content ── */}
       <AnimatePresence>
         {open && (
-          <>
-            {/* Backdrop */}
-            <div style={{ position: 'fixed', inset: 0, zIndex: 200 }} onClick={() => setOpen(false)} />
-            <motion.div initial={{ opacity: 0, y: -8, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.96 }} transition={{ duration: 0.15 }}
-              style={{ position: 'absolute', top: 48, right: 0, width: 300, background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden', zIndex: 300, boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}>
-              <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>Notifications</p>
-                {hasUnread && <span style={{ fontSize: 9, background: 'var(--jade-dim)', color: 'var(--jade)', padding: '2px 7px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{notifications.length} new</span>}
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            style={{
+              position: 'fixed',
+              top: TICKER_HEIGHT + 64,  // ticker height + header height
+              right: 12,
+              width: 292,
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--border)',
+              borderRadius: 20,
+              overflow: 'hidden',
+              zIndex: 400,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,212,161,0.06)',
+            }}>
+            <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontSize: 13, fontWeight: 700 }}>Notifications</p>
+              {hasUnread && <span style={{ fontSize: 9, background: 'var(--jade-dim)', color: 'var(--jade)', padding: '2px 7px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{notifications.length} new</span>}
+            </div>
+            {notifications.length === 0 ? (
+              <div style={{ padding: '28px 16px', textAlign: 'center' }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 8px', display: 'block' }}>
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 3 }}>No notifications</p>
+                <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>You're all caught up</p>
               </div>
-              {notifications.length === 0 ? (
-                <div style={{ padding: '32px 16px', textAlign: 'center' }}>
-                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" style={{ margin: '0 auto 10px', display: 'block' }}>
-                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-                  </svg>
-                  <p style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600, marginBottom: 4 }}>No notifications</p>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>You're all caught up</p>
-                </div>
-              ) : (
-                <div style={{ maxHeight: 320, overflowY: 'auto' }}>
-                  {notifications.map((n, i) => (
-                    <div key={n.id} style={{ padding: '12px 16px', borderBottom: i < notifications.length - 1 ? '1px solid rgba(0,212,161,0.04)' : 'none', display: 'flex', gap: 10 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: 9, background: `${n.color}14`, border: `1px solid ${n.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{n.icon}</div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                          <p style={{ fontSize: 12, fontWeight: 700, color: n.color }}>{n.title}</p>
-                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0, marginLeft: 6 }}>{n.time}</p>
-                        </div>
-                        <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</p>
+            ) : (
+              <div style={{ maxHeight: 310, overflowY: 'auto' }}>
+                {notifications.map((n, i) => (
+                  <div key={n.id} style={{ padding: '11px 14px', borderBottom: i < notifications.length - 1 ? '1px solid rgba(0,212,161,0.04)' : 'none', display: 'flex', gap: 10 }}>
+                    <div style={{ width: 26, height: 26, borderRadius: 8, background: `${n.color}14`, border: `1px solid ${n.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{n.icon}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: n.color }}>{n.title}</p>
+                        <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', flexShrink: 0, marginLeft: 5 }}>{n.time}</p>
                       </div>
+                      <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{n.body}</p>
                     </div>
-                  ))}
-                </div>
-              )}
-            </motion.div>
-          </>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
@@ -147,44 +154,29 @@ function NotificationBell({ creditAccount, ltvHealth }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// CREDIT CARD SUMMARY
+// CREDIT SUMMARY CARD
 // ─────────────────────────────────────────────────────────────
 function CreditSummaryCard({ account, ltvHealth }) {
   if (!account) return null
-
-  const pledgeValue  = parseFloat(ltvHealth?.current_pledge_value || 0)
-  const creditLimit  = parseFloat(account.credit_limit  || 0)
-  const available    = parseFloat(account.available_credit || 0)
-  const outstanding  = parseFloat(account.outstanding  || 0)
-  const utilPct      = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0
+  const pledgeValue = parseFloat(ltvHealth?.current_pledge_value || 0)
+  const creditLimit = parseFloat(account.credit_limit  || 0)
+  const available   = parseFloat(account.available_credit || 0)
+  const outstanding = parseFloat(account.outstanding || 0)
+  const utilPct     = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0
 
   const rows = [
-    { label: 'My Pledge Value', value: fmtL(pledgeValue),  highlight: false },
-    { label: 'Credit Limit',    value: fmtL(creditLimit),  highlight: false },
-    { label: 'Available',       value: fmtL(available),    highlight: true  },
-    { label: 'Utilized',        value: fmtL(outstanding),  highlight: outstanding > 0 },
+    { label: 'My Pledge Value', value: fmtL(pledgeValue), highlight: false },
+    { label: 'Credit Limit',    value: fmtL(creditLimit), highlight: false },
+    { label: 'Available',       value: fmtL(available),   highlight: true  },
+    { label: 'Utilized',        value: fmtL(outstanding), highlight: outstanding > 0 },
   ]
 
   return (
-    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-      style={{ marginBottom: 16, position: 'relative', borderRadius: 22, overflow: 'hidden' }}>
-      {/* Card gradient background */}
-      <div style={{
-        background: 'linear-gradient(135deg, #0d1f17 0%, #081510 50%, #0a1d14 100%)',
-        border: '1px solid rgba(0,212,161,0.14)',
-        borderRadius: 22,
-        padding: '20px 20px 16px',
-        position: 'relative',
-        overflow: 'hidden',
-      }}>
-        {/* Decorative circles */}
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} style={{ marginBottom: 16 }}>
+      <div style={{ background: 'linear-gradient(135deg, #0d1f17 0%, #081510 50%, #0a1d14 100%)', border: '1px solid rgba(0,212,161,0.14)', borderRadius: 22, padding: '20px 20px 16px', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', top: -40, right: -40, width: 140, height: 140, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,212,161,0.07), transparent)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: -30, left: -20, width: 100, height: 100, borderRadius: '50%', background: 'radial-gradient(circle, rgba(0,212,161,0.04), transparent)', pointerEvents: 'none' }} />
-
-        {/* Card chip icon */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Chip SVG */}
             <svg width="28" height="22" viewBox="0 0 28 22" fill="none">
               <rect x="1" y="1" width="26" height="20" rx="3" fill="rgba(0,212,161,0.15)" stroke="rgba(0,212,161,0.35)" strokeWidth="0.8"/>
               <rect x="4" y="4" width="20" height="14" rx="2" fill="rgba(0,212,161,0.08)" stroke="rgba(0,212,161,0.2)" strokeWidth="0.5"/>
@@ -197,11 +189,8 @@ function CreditSummaryCard({ account, ltvHealth }) {
               <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Wealth-backed CLOU</p>
             </div>
           </div>
-          {/* LienPay wordmark */}
-          <p style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--jade)', fontWeight: 400 }}>LienPay</p>
+          <p style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: 'var(--jade)' }}>LienPay</p>
         </div>
-
-        {/* Data rows */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map((row, i) => (
             <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -210,8 +199,6 @@ function CreditSummaryCard({ account, ltvHealth }) {
             </div>
           ))}
         </div>
-
-        {/* Utilisation bar */}
         {creditLimit > 0 && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
@@ -224,12 +211,10 @@ function CreditSummaryCard({ account, ltvHealth }) {
             </div>
           </div>
         )}
-
-        {/* Free period badge */}
         {outstanding === 0 && (
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'rgba(0,212,161,0.06)', borderRadius: 8, border: '1px solid rgba(0,212,161,0.12)', width: 'fit-content' }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--jade)' }} />
-            <p style={{ fontSize: 9, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600, letterSpacing: '0.5px' }}>30 DAYS INTEREST-FREE · ACTIVE</p>
+          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'rgba(0,212,161,0.06)', borderRadius: 8, border: '1px solid rgba(0,212,161,0.12)', width: 'fit-content' }}>
+            <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--jade)' }} />
+            <p style={{ fontSize: 9, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>30 DAYS INTEREST-FREE · ACTIVE</p>
           </div>
         )}
       </div>
@@ -238,84 +223,66 @@ function CreditSummaryCard({ account, ltvHealth }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RISK SIMULATOR
+// RISK SIMULATOR (compact version)
 // ─────────────────────────────────────────────────────────────
 function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
-  const [tab, setTab]         = useState('used')
+  const [tab, setTab] = useState('used')
   const [dropPct, setDropPct] = useState(0)
   const creditLimit = parseFloat(creditAccount?.credit_limit || 0)
   const outstanding = parseFloat(creditAccount?.outstanding || 0)
   const available   = parseFloat(creditAccount?.available_credit || 0)
   const pledgeValue = parseFloat(ltvHealth?.current_pledge_value || creditLimit / 0.40 || 0)
   const maxEligible = parseFloat(ltvHealth?.max_eligible || pledgeValue * 0.40 || 0)
-  const [slider, setSlider] = useState(tab === 'used' ? outstanding : available)
-  useEffect(() => { setSlider(tab === 'used' ? outstanding : available) }, [tab, outstanding, available])
+  const [slider, setSlider] = useState(outstanding)
+  useEffect(() => { setSlider(tab === 'used' ? outstanding : available) }, [tab])
   const usedAmt = tab === 'used' ? slider : creditLimit - slider
   const calcLTV = (used, drop) => { if (maxEligible <= 0 || used <= 0) return 0; const adj = maxEligible * (1 - drop / 100); return adj <= 0 ? 999 : (used / adj) * 100 }
   const curLTV  = calcLTV(usedAmt, 0)
   const dropLTV = calcLTV(usedAmt, dropPct)
   const getLtvStatus = (l) => l >= 95 ? { label: 'Critical', color: '#EF4444' } : l >= 90 ? { label: 'Action', color: '#F97316' } : l >= 80 ? { label: 'Watch', color: '#F59E0B' } : { label: 'Healthy', color: '#00D4A1' }
   const status = getLtvStatus(curLTV), dropStatus = getLtvStatus(dropLTV)
-  const QUICK = tab === 'used' ? [{ l: '0', v: 0 }, { l: '25%', v: creditLimit * 0.25 }, { l: '50%', v: creditLimit * 0.5 }, { l: '75%', v: creditLimit * 0.75 }, { l: 'MAX', v: creditLimit }] : [{ l: 'MAX', v: creditLimit }, { l: '75%', v: creditLimit * 0.75 }, { l: '50%', v: creditLimit * 0.5 }, { l: '25%', v: creditLimit * 0.25 }, { l: '0', v: 0 }]
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}
       onClick={onClose}>
       <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 280, damping: 32 }}
-        style={{ background: 'var(--bg-elevated)', borderRadius: '28px 28px 0 0', padding: '20px 20px 44px', width: '100%', maxHeight: '88vh', overflowY: 'auto' }}
+        style={{ background: 'var(--bg-elevated)', borderRadius: '28px 28px 0 0', padding: '20px 20px 44px', width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
         onClick={e => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>RISK SIMULATOR</p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 7, height: 7, borderRadius: '50%', background: status.color }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: status.color }}>{status.label}</span>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{curLTV.toFixed(1)}%</span>
-            <motion.button whileTap={{ scale: 0.88 }} onClick={onClose} style={{ width: 30, height: 30, borderRadius: 10, background: 'var(--bg-overlay)', border: '1px solid var(--border)', fontSize: 16, color: 'var(--text-muted)', cursor: 'pointer' }}>×</motion.button>
+            <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>RISK SIMULATOR</p>
+            <div style={{ width: 6, height: 6, borderRadius: '50%', background: status.color }} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: status.color }}>{status.label} {curLTV.toFixed(1)}%</span>
           </div>
-        </div>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px', marginBottom: 14 }}>
-          {[{ label: 'Healthy', range: '< 80%', color: '#00D4A1' }, { label: 'Watch', range: '80–89%', color: '#F59E0B' }, { label: 'Action', range: '90–94%', color: '#F97316' }, { label: 'Critical', range: '≥ 95%', color: '#EF4444' }].map((s, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: i < 3 ? 7 : 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}><div style={{ width: 6, height: 6, borderRadius: '50%', background: s.color }} /><span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{s.label}</span></div>
-              <span style={{ fontSize: 10, color: s.color, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{s.range}</span>
-            </div>
-          ))}
+          <motion.button whileTap={{ scale: 0.88 }} onClick={onClose} style={{ width: 30, height: 30, borderRadius: 10, background: 'var(--bg-overlay)', border: '1px solid var(--border)', fontSize: 16, color: 'var(--text-muted)', cursor: 'pointer' }}>×</motion.button>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, background: 'var(--bg-surface)', borderRadius: 12, padding: 3, marginBottom: 14 }}>
-          {['used', 'available'].map(t => (
-            <motion.button key={t} whileTap={{ scale: 0.96 }} onClick={() => setTab(t)}
-              style={{ height: 38, borderRadius: 10, fontSize: 12, fontWeight: 700, background: tab === t ? (t === 'used' ? '#C9A449' : 'var(--jade)') : 'transparent', color: tab === t ? '#000' : 'var(--text-muted)', border: 'none', cursor: 'pointer' }}>
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </motion.button>
-          ))}
+          {['used','available'].map(t => (<motion.button key={t} whileTap={{ scale: 0.96 }} onClick={() => setTab(t)} style={{ height: 36, borderRadius: 10, fontSize: 12, fontWeight: 700, background: tab === t ? (t === 'used' ? '#C9A449' : 'var(--jade)') : 'transparent', color: tab === t ? '#000' : 'var(--text-muted)', border: 'none', cursor: 'pointer' }}>{t.charAt(0).toUpperCase() + t.slice(1)}</motion.button>))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
-          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.max(0, v - 10000))} style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>−</motion.button>
-          <p style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 28, color: tab === 'used' ? '#C9A449' : 'var(--jade)' }}>{fmtL(slider)}</p>
-          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.min(creditLimit, v + 10000))} style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>+</motion.button>
+          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.max(0, v - 10000))} style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>−</motion.button>
+          <p style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 28, color: tab === 'used' ? '#C9A449' : 'var(--jade)' }}>₹{fmtL(slider)}</p>
+          <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.min(creditLimit, v + 10000))} style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>+</motion.button>
         </div>
-        <input type="range" min={0} max={creditLimit || 1000000} step={5000} value={slider} onChange={e => setSlider(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: 8, accentColor: tab === 'used' ? '#C9A449' : 'var(--jade)' }} />
-        <div style={{ display: 'flex', gap: 5, marginBottom: 16 }}>
-          {QUICK.map(q => (<motion.button key={q.l} whileTap={{ scale: 0.9 }} onClick={() => setSlider(q.v)} style={{ flex: 1, height: 28, borderRadius: 7, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: Math.abs(slider - q.v) < 1 ? 'var(--jade)' : 'var(--bg-surface)', color: Math.abs(slider - q.v) < 1 ? '#000' : 'var(--text-muted)', cursor: 'pointer' }}>{q.l}</motion.button>))}
-        </div>
-        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '14px', marginBottom: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}><span style={{ fontSize: 12 }}>📉</span><p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>PORTFOLIO DROP SCENARIO</p></div>
+        <input type="range" min={0} max={creditLimit || 1000000} step={5000} value={slider} onChange={e => setSlider(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: 16, accentColor: tab === 'used' ? '#C9A449' : 'var(--jade)' }} />
+        <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px', marginBottom: 12 }}>
+          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 10 }}>PORTFOLIO DROP SCENARIO</p>
           <input type="range" min={0} max={30} step={5} value={dropPct} onChange={e => setDropPct(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: 8, accentColor: '#EF4444' }} />
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-            {[0, -5, -10, -15, -20, -30].map(d => (<motion.button key={d} whileTap={{ scale: 0.9 }} onClick={() => setDropPct(Math.abs(d))} style={{ flex: 1, height: 26, borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#EF4444' : 'var(--bg-overlay)') : 'var(--bg-elevated)', color: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#fff' : 'var(--text-primary)') : 'var(--text-muted)', cursor: 'pointer' }}>{d === 0 ? '0' : `${d}%`}</motion.button>))}
+            {[0,-5,-10,-15,-20,-30].map(d => (<motion.button key={d} whileTap={{ scale: 0.9 }} onClick={() => setDropPct(Math.abs(d))} style={{ flex: 1, height: 26, borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#EF4444' : 'var(--bg-overlay)') : 'var(--bg-elevated)', color: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#fff' : 'var(--text-primary)') : 'var(--text-muted)', cursor: 'pointer' }}>{d === 0 ? '0' : `${d}%`}</motion.button>))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-            {[{ label: 'ORIGINAL', value: fmtL(pledgeValue), color: 'var(--text-primary)' }, { label: 'AFTER DROP', value: fmtL(pledgeValue * (1 - dropPct / 100)), color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' }, { label: 'LTV', value: `${(dropPct > 0 ? dropLTV : curLTV).toFixed(1)}%`, color: dropStatus.color }].map((s, i) => (
-              <div key={i} style={{ background: 'var(--bg-elevated)', borderRadius: 9, padding: '8px 10px' }}>
+            {[{ label: 'ORIGINAL', value: `₹${fmtL(pledgeValue)}`, color: 'var(--text-primary)' }, { label: 'AFTER DROP', value: `₹${fmtL(pledgeValue * (1 - dropPct / 100))}`, color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' }, { label: 'LTV', value: `${(dropPct > 0 ? dropLTV : curLTV).toFixed(1)}%`, color: dropStatus.color }].map((s, i) => (
+              <div key={i} style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '7px 9px' }}>
                 <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2, fontFamily: 'var(--font-mono)' }}>{s.label}</p>
-                <p style={{ fontSize: 13, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>{s.value}</p>
+                <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>{s.value}</p>
               </div>
             ))}
           </div>
         </div>
         {dropPct > 0 && dropLTV >= 80 && (
-          <div style={{ background: dropLTV >= 90 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)', border: `1px solid ${dropLTV >= 90 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`, borderRadius: 12, padding: '10px 12px' }}>
-            <p style={{ fontSize: 12, color: dropLTV >= 90 ? '#EF4444' : '#F59E0B', fontWeight: 700 }}>{dropLTV >= 95 ? '🔴 Critical zone' : dropLTV >= 90 ? '🟠 Action required' : '🟡 Watch zone'}</p>
+          <div style={{ background: dropLTV >= 90 ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)', border: `1px solid ${dropLTV >= 90 ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}`, borderRadius: 11, padding: '9px 12px' }}>
+            <p style={{ fontSize: 12, color: dropLTV >= 90 ? '#EF4444' : '#F59E0B', fontWeight: 700 }}>{dropLTV >= 95 ? '🔴 Critical' : dropLTV >= 90 ? '🟠 Action required' : '🟡 Watch zone'}</p>
           </div>
         )}
       </motion.div>
@@ -350,7 +317,7 @@ export default function Dashboard({ onPay }) {
   const outstanding = parseFloat(account?.outstanding      || 0)
   const ltv         = ltvHealth
   const ltvRatio    = parseFloat(ltv?.ltv_ratio ?? ltv?.ltv ?? 0)
-  const ltvColor    = ltvRatio >= 90 || ltv?.status === 'RED' ? 'var(--red)' : ltvRatio >= 80 || ltv?.status === 'AMBER' ? 'var(--amber)' : 'var(--jade)'
+  const ltvColor    = ltvRatio >= 90 ? 'var(--red)' : ltvRatio >= 80 ? 'var(--amber)' : 'var(--jade)'
 
   const displayedTxns = showAllTxns ? transactions : transactions.slice(0, 5)
   const txnIcon = (name) => { const n = (name || '').toLowerCase(); if (n.includes('zomato') || n.includes('swiggy')) return '🍕'; if (n.includes('uber') || n.includes('ola')) return '🚗'; if (n.includes('amazon') || n.includes('flipkart')) return '📦'; return '💳' }
@@ -362,7 +329,7 @@ export default function Dashboard({ onPay }) {
   }
 
   const ringScale   = Math.max(0.88, 1 - scrollY / 500)
-  const ringOpacity = Math.max(0.4,  1 - scrollY / 350)
+  const ringOpacity = Math.max(0.4, 1 - scrollY / 350)
   const headerY     = Math.min(0, -scrollY * 0.1)
 
   if (loading) return (
@@ -374,11 +341,9 @@ export default function Dashboard({ onPay }) {
 
   return (
     <div ref={scrollRef} className="screen">
-      {/* Risk Simulator FAB */}
       <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSimulator(true)}
         style={{ position: 'fixed', right: 16, bottom: 100, zIndex: 150, width: 46, height: 46, borderRadius: 15, background: 'linear-gradient(135deg, #1A2520, #0E1C18)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 4px 16px rgba(0,212,161,0.15)', cursor: 'pointer' }}>⚡</motion.button>
 
-      {/* Blobs */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         <LiquidBlob size={300} color="var(--jade)" top={`${-80 - scrollY * 0.2}px`} right="-70px" />
         <LiquidBlob size={200} color="var(--jade)" top={`${380 - scrollY * 0.1}px`} left="-50px" delay={3} />
@@ -386,18 +351,18 @@ export default function Dashboard({ onPay }) {
 
       <div style={{ position: 'relative', zIndex: 1, padding: '0 20px' }}>
 
-        {/* Header with notification bell */}
+        {/* Header */}
         <div style={{ paddingTop: 18, paddingBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', transform: `translateY(${headerY}px)` }}>
           <div>
             <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '3px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 2 }}>LIENPAY</p>
             <h1 style={{ fontFamily: 'var(--font-display)', fontSize: 28, fontWeight: 400, letterSpacing: '-0.5px' }}>{getGreeting()}</h1>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <div style={{ marginTop: 4 }}>
             <NotificationBell creditAccount={account} ltvHealth={ltv} />
           </div>
         </div>
 
-        {/* Credit Ring */}
+        {/* Credit ring */}
         <div style={{ transform: `scale(${ringScale})`, opacity: ringOpacity, transformOrigin: 'center top', marginBottom: 6, transition: 'transform 0.05s linear, opacity 0.05s linear' }}>
           <CreditRing limit={creditLimit} available={available} />
         </div>
@@ -414,9 +379,9 @@ export default function Dashboard({ onPay }) {
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
             {[
-              { l: 'OUTSTANDING', v: fmtL(outstanding), c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR',         v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
+              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+              { l: 'LTV RATIO', v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
+              { l: 'APR', v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
                 <p style={{ fontSize: 7, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 5 }}>{s.l}</p>
@@ -426,14 +391,12 @@ export default function Dashboard({ onPay }) {
           </div>
         </motion.div>
 
-        {/* Account health banner */}
+        {/* Health banner */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-          style={{ background: ltvRatio >= 90 ? 'var(--red-dim)' : ltvRatio >= 80 ? 'var(--amber-dim)' : 'rgba(0,212,161,0.06)', border: `1px solid ${ltvRatio >= 90 ? 'rgba(224,82,82,0.25)' : ltvRatio >= 80 ? 'rgba(224,160,48,0.25)' : 'rgba(0,212,161,0.12)'}`, borderRadius: 14, padding: '11px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+          style={{ background: ltvRatio >= 80 ? (ltvRatio >= 90 ? 'var(--red-dim)' : 'var(--amber-dim)') : 'rgba(0,212,161,0.06)', border: `1px solid ${ltvRatio >= 90 ? 'rgba(224,82,82,0.25)' : ltvRatio >= 80 ? 'rgba(224,160,48,0.25)' : 'rgba(0,212,161,0.12)'}`, borderRadius: 14, padding: '11px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
           onClick={() => setActiveTab('portfolio')}>
-          <div style={{ width: 28, height: 28, borderRadius: 9, background: ltvRatio >= 90 ? 'rgba(239,68,68,0.15)' : ltvRatio >= 80 ? 'rgba(245,158,11,0.15)' : 'rgba(0,212,161,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={ltvRatio >= 90 ? '#EF4444' : ltvRatio >= 80 ? '#F59E0B' : 'var(--jade)'} strokeWidth="2.5">
-              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            </svg>
+          <div style={{ width: 28, height: 28, borderRadius: 9, background: ltvRatio >= 80 ? 'rgba(239,68,68,0.12)' : 'rgba(0,212,161,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={ltvRatio >= 80 ? (ltvRatio >= 90 ? '#EF4444' : '#F59E0B') : 'var(--jade)'} strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
           </div>
           <div style={{ flex: 1 }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: ltvRatio >= 90 ? '#EF4444' : ltvRatio >= 80 ? '#F59E0B' : 'var(--jade)', marginBottom: 1 }}>
@@ -443,16 +406,14 @@ export default function Dashboard({ onPay }) {
               {ltvRatio >= 80 ? ltv?.message : 'Your portfolio holds are supporting the account comfortably within range'}
             </p>
           </div>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
         </motion.div>
 
-        {/* Action buttons — Scan & Pay + Repay Now */}
+        {/* Action buttons */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div style={{ display: 'grid', gridTemplateColumns: outstanding > 0 ? '1fr 1fr' : '1fr', gap: 10, marginBottom: 16 }}>
             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.96 }} onClick={onPay}
-              style={{ height: 54, borderRadius: 16, background: available > 0 ? 'linear-gradient(135deg, var(--jade), #00A878)' : 'var(--bg-elevated)', color: available > 0 ? '#000' : 'var(--text-muted)', fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-sans)', border: available <= 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}>
-              Scan & Pay
-            </motion.button>
+              style={{ height: 54, borderRadius: 16, background: available > 0 ? 'linear-gradient(135deg, var(--jade), #00A878)' : 'var(--bg-elevated)', color: available > 0 ? '#000' : 'var(--text-muted)', fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-sans)', border: available <= 0 ? '1px solid var(--border)' : 'none', cursor: 'pointer' }}>Scan & Pay</motion.button>
             {outstanding > 0 && (
               <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.96 }} onClick={() => setActiveTab('billing')}
                 style={{ height: 54, borderRadius: 16, background: 'rgba(201,164,73,0.12)', border: '1px solid rgba(201,164,73,0.3)', color: '#C9A449', fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-sans)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -471,8 +432,7 @@ export default function Dashboard({ onPay }) {
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <p style={{ fontSize: 14, fontWeight: 700 }}>Recent</p>
-              <motion.button whileTap={{ scale: 0.96 }} onClick={handleViewAll}
-                style={{ fontSize: 11, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
+              <motion.button whileTap={{ scale: 0.96 }} onClick={handleViewAll} style={{ fontSize: 11, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer' }}>
                 {showAllTxns ? 'Show less' : 'View all →'}
               </motion.button>
             </div>
@@ -480,18 +440,16 @@ export default function Dashboard({ onPay }) {
               {displayedTxns.map((txn, i) => (
                 <ScrollReveal key={txn.txn_id || i} scrollY={scrollY}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 14px' }}>
-                    <div style={{ width: 40, height: 40, borderRadius: 13, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-                      {txnIcon(txn.merchant_name)}
-                    </div>
+                    <div style={{ width: 40, height: 40, borderRadius: 13, background: 'var(--bg-elevated)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{txnIcon(txn.merchant_name)}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{txn.merchant_name}</p>
                       <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                         {txn.initiated_at ? new Date(txn.initiated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'}
-                        {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6 }}>· Interest-free</span>}
+                        {txn.is_in_free_period && <span style={{ color: 'var(--jade)', marginLeft: 6 }}>· Free</span>}
                       </p>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>+₹{fmt(txn.amount)}</p>
+                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>+₹{fmtL(txn.amount)}</p>
                       <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{txn.status}</p>
                     </div>
                   </div>
@@ -513,7 +471,7 @@ export default function Dashboard({ onPay }) {
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
             </div>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>{fmtL(ltv?.current_pledge_value || 0)}</p>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>₹{fmtL(ltv?.current_pledge_value || 0)}</p>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Pledged portfolio value</p>
           </div>
         </motion.div>

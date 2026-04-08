@@ -413,7 +413,7 @@ export default function Onboarding({ onComplete }) {
                       style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '12px 14px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>{h.rta === 'CAMS' ? 'MF CENTRAL' : 'KFINTECH'}</p>
+                          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 2 }}>{h.rta === 'CAMS' ? 'MF Central' : 'KFintech'}</p>
                           <p style={{ fontSize: 13, fontWeight: 600 }}>{h.scheme_name}</p>
                         </div>
                         <div style={{ background: 'rgba(0,212,161,0.1)', borderRadius: 7, padding: '3px 9px', textAlign: 'center', marginLeft: 8 }}>
@@ -449,13 +449,13 @@ export default function Onboarding({ onComplete }) {
           {/* ── PLEDGE 1: OTP ── */}
           {currentStep === 'PLEDGE' && subStep === 1 && (
             <motion.div key="pledge1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>Pledge confirmations sent by CAMS/KFintech. Dev mode: auto-confirmed.</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16, lineHeight: 1.6 }}>Pledge confirmations sent by MF Central / KFintech. Dev mode: auto-confirmed.</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
                 {pledges.map((p, i) => (
                   <div key={p.pledge_id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--jade-border)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <p style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{p.scheme_name || `Fund ${i + 1}`}</p>
-                      <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.rta} · OTP: {p.rta === 'CAMS' ? '123456' : '654321'}</p>
+                      <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{p.rta === 'CAMS' ? 'MF Central' : 'KFintech'} · OTP: {p.rta === 'CAMS' ? '123456' : '654321'}</p>
                     </div>
                     <div style={{ color: 'var(--jade)' }}><Icon.Lock /></div>
                   </div>
