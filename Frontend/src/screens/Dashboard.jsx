@@ -3,18 +3,30 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
 import useStore from '../store/useStore'
 import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
-import { TICKER_HEIGHT } from '../App'
 
+// ── Formatters ────────────────────────────────────────────────
+// fmtL ALREADY includes the ₹ sign — NEVER prefix with ₹ again
 const fmt  = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
-const fmtL = (n) => { const v = parseFloat(n || 0); return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}` }
-const getGreeting = () => { const h = new Date().getHours(); if (h >= 5 && h < 12) return 'Good morning'; if (h >= 12 && h < 17) return 'Good afternoon'; if (h >= 17 && h < 21) return 'Good evening'; return 'Good night' }
+const fmtL = (n) => {
+  const v = parseFloat(n || 0)
+  return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}`
+}
+const getGreeting = () => {
+  const h = new Date().getHours()
+  if (h >= 5  && h < 12) return 'Good morning'
+  if (h >= 12 && h < 17) return 'Good afternoon'
+  if (h >= 17 && h < 21) return 'Good evening'
+  return 'Good night'
+}
 
 // ─────────────────────────────────────────────────────────────
 // NOTIFICATION BELL
-// Panel renders as fixed overlay so it never bleeds into content
+// Panel position measured from actual bell button DOM rect
+// so it NEVER overlaps page content regardless of scroll/layout
 // ─────────────────────────────────────────────────────────────
 function NotificationBell({ creditAccount, ltvHealth }) {
   const [open, setOpen] = useState(false)
+  const [panelPos, setPanelPos] = useState({ top: 70, right: 12 })
   const bellRef = useRef(null)
 
   const outstanding  = parseFloat(creditAccount?.outstanding || 0)
@@ -37,7 +49,7 @@ function NotificationBell({ creditAccount, ltvHealth }) {
       id: 'ltv-watch', type: 'warning',
       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
       title: 'LTV Watch Zone',
-      body: `Portfolio at ${ltvRatio.toFixed(1)}% — consider adding funds.`,
+      body: `Portfolio at ${ltvRatio.toFixed(1)}% — consider adding more collateral.`,
       time: 'Today', color: '#F59E0B',
     })
   }
@@ -47,7 +59,7 @@ function NotificationBell({ creditAccount, ltvHealth }) {
       id: 'due-soon', type: daysUntilDue <= 2 ? 'critical' : 'warning',
       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 2 ? '#EF4444' : '#F59E0B'} strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
       title: `Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
-      body: `₹${fmt(outstanding)} outstanding. Pay to keep interest-free status.`,
+      body: `${fmtL(outstanding)} outstanding — pay to keep interest-free.`,
       time: `${daysUntilDue}d left`, color: daysUntilDue <= 2 ? '#EF4444' : '#F59E0B',
     })
   }
@@ -57,7 +69,7 @@ function NotificationBell({ creditAccount, ltvHealth }) {
       id: 'healthy', type: 'info',
       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
       title: 'Portfolio Healthy',
-      body: `LTV at ${ltvRatio.toFixed(1)}% — well within safe zone. Collateral is secure.`,
+      body: `LTV at ${ltvRatio.toFixed(1)}% — well within safe zone.`,
       time: 'Today', color: 'var(--jade)',
     })
   }
@@ -67,7 +79,7 @@ function NotificationBell({ creditAccount, ltvHealth }) {
       id: 'clou', type: 'info',
       icon: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>,
       title: 'CLOU Credit Active',
-      body: `₹${fmtL(creditAccount?.available_credit)} available · UPI: ${creditAccount?.upi_vpa}`,
+      body: `${fmtL(creditAccount?.available_credit)} available · UPI: ${creditAccount?.upi_vpa}`,
       time: 'Active', color: 'var(--jade)',
     })
   }
@@ -76,17 +88,34 @@ function NotificationBell({ creditAccount, ltvHealth }) {
     : notifications.some(n => n.type === 'warning') ? '#F59E0B' : 'var(--jade)'
   const hasUnread = notifications.length > 0
 
+  // Measure actual bell position when opening so panel is always below bell
+  const handleOpen = () => {
+    if (!open && bellRef.current) {
+      const rect = bellRef.current.getBoundingClientRect()
+      // Position panel right-aligned below the bell with 8px gap
+      setPanelPos({
+        top:   rect.bottom + 8,
+        right: window.innerWidth - rect.right,
+      })
+    }
+    setOpen(o => !o)
+  }
+
   // Close on outside click
   useEffect(() => {
     if (!open) return
-    const handler = (e) => { if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false) }
-    setTimeout(() => document.addEventListener('mousedown', handler), 0)
-    return () => document.removeEventListener('mousedown', handler)
+    const handler = (e) => {
+      if (bellRef.current && !bellRef.current.contains(e.target)) setOpen(false)
+    }
+    // Small delay so the open click doesn't immediately close
+    const t = setTimeout(() => document.addEventListener('mousedown', handler), 50)
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', handler) }
   }, [open])
 
   return (
-    <div ref={bellRef} style={{ position: 'relative', zIndex: 400 }}>
-      <motion.button whileTap={{ scale: 0.88 }} onClick={() => setOpen(o => !o)}
+    // Wrapper div with position relative so the panel can escape via fixed positioning
+    <div ref={bellRef} style={{ position: 'relative' }}>
+      <motion.button whileTap={{ scale: 0.88 }} onClick={handleOpen}
         style={{ width: 40, height: 40, borderRadius: 13, background: open ? 'rgba(0,212,161,0.1)' : 'var(--bg-surface)', border: `1px solid ${open ? 'var(--jade-border)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', cursor: 'pointer', flexShrink: 0 }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={bellColor} strokeWidth="2" strokeLinecap="round">
           <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
@@ -98,27 +127,27 @@ function NotificationBell({ creditAccount, ltvHealth }) {
         )}
       </motion.button>
 
-      {/* ── Panel: fixed positioning so it NEVER overlaps the screen content ── */}
+      {/* Panel: fixed so it escapes all overflow/z-index contexts */}
       <AnimatePresence>
         {open && (
           <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.97 }}
-            transition={{ duration: 0.15, ease: 'easeOut' }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
             style={{
               position: 'fixed',
-              top: TICKER_HEIGHT + 64,  // ticker height + header height
-              right: 12,
-              width: 292,
+              top: panelPos.top,
+              right: panelPos.right,
+              width: 288,
               background: 'var(--bg-elevated)',
               border: '1px solid var(--border)',
               borderRadius: 20,
               overflow: 'hidden',
-              zIndex: 400,
-              boxShadow: '0 20px 60px rgba(0,0,0,0.6), 0 0 0 1px rgba(0,212,161,0.06)',
+              zIndex: 9999,   // above everything
+              boxShadow: '0 24px 64px rgba(0,0,0,0.65), 0 0 0 1px rgba(0,212,161,0.08)',
             }}>
-            <div style={{ padding: '13px 15px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ padding: '12px 15px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <p style={{ fontSize: 13, fontWeight: 700 }}>Notifications</p>
               {hasUnread && <span style={{ fontSize: 9, background: 'var(--jade-dim)', color: 'var(--jade)', padding: '2px 7px', borderRadius: 6, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{notifications.length} new</span>}
             </div>
@@ -131,10 +160,10 @@ function NotificationBell({ creditAccount, ltvHealth }) {
                 <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>You're all caught up</p>
               </div>
             ) : (
-              <div style={{ maxHeight: 310, overflowY: 'auto' }}>
+              <div style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {notifications.map((n, i) => (
                   <div key={n.id} style={{ padding: '11px 14px', borderBottom: i < notifications.length - 1 ? '1px solid rgba(0,212,161,0.04)' : 'none', display: 'flex', gap: 10 }}>
-                    <div style={{ width: 26, height: 26, borderRadius: 8, background: `${n.color}14`, border: `1px solid ${n.color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{n.icon}</div>
+                    <div style={{ width: 26, height: 26, borderRadius: 8, background: `${n.color}14`, border: `1px solid ${n.color}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{n.icon}</div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
                         <p style={{ fontSize: 12, fontWeight: 700, color: n.color }}>{n.title}</p>
@@ -164,6 +193,7 @@ function CreditSummaryCard({ account, ltvHealth }) {
   const outstanding = parseFloat(account.outstanding || 0)
   const utilPct     = creditLimit > 0 ? (outstanding / creditLimit) * 100 : 0
 
+  // ── FIX: fmtL already includes ₹ — do NOT add another ₹ ──
   const rows = [
     { label: 'My Pledge Value', value: fmtL(pledgeValue), highlight: false },
     { label: 'Credit Limit',    value: fmtL(creditLimit), highlight: false },
@@ -223,10 +253,10 @@ function CreditSummaryCard({ account, ltvHealth }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// RISK SIMULATOR (compact version)
+// RISK SIMULATOR
 // ─────────────────────────────────────────────────────────────
 function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
-  const [tab, setTab] = useState('used')
+  const [tab, setTab]   = useState('used')
   const [dropPct, setDropPct] = useState(0)
   const creditLimit = parseFloat(creditAccount?.credit_limit || 0)
   const outstanding = parseFloat(creditAccount?.outstanding || 0)
@@ -241,6 +271,7 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
   const dropLTV = calcLTV(usedAmt, dropPct)
   const getLtvStatus = (l) => l >= 95 ? { label: 'Critical', color: '#EF4444' } : l >= 90 ? { label: 'Action', color: '#F97316' } : l >= 80 ? { label: 'Watch', color: '#F59E0B' } : { label: 'Healthy', color: '#00D4A1' }
   const status = getLtvStatus(curLTV), dropStatus = getLtvStatus(dropLTV)
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}
@@ -261,7 +292,7 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
           <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.max(0, v - 10000))} style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>−</motion.button>
-          <p style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 28, color: tab === 'used' ? '#C9A449' : 'var(--jade)' }}>₹{fmtL(slider)}</p>
+          <p style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--font-display)', fontSize: 28, color: tab === 'used' ? '#C9A449' : 'var(--jade)' }}>{fmtL(slider)}</p>
           <motion.button whileTap={{ scale: 0.88 }} onClick={() => setSlider(v => Math.min(creditLimit, v + 10000))} style={{ width: 38, height: 38, borderRadius: 11, background: 'var(--bg-surface)', border: '1px solid var(--border)', fontSize: 18, color: 'var(--text-secondary)', cursor: 'pointer' }}>+</motion.button>
         </div>
         <input type="range" min={0} max={creditLimit || 1000000} step={5000} value={slider} onChange={e => setSlider(parseFloat(e.target.value))} style={{ width: '100%', marginBottom: 16, accentColor: tab === 'used' ? '#C9A449' : 'var(--jade)' }} />
@@ -272,7 +303,7 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
             {[0,-5,-10,-15,-20,-30].map(d => (<motion.button key={d} whileTap={{ scale: 0.9 }} onClick={() => setDropPct(Math.abs(d))} style={{ flex: 1, height: 26, borderRadius: 6, fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 600, border: '1px solid var(--border)', background: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#EF4444' : 'var(--bg-overlay)') : 'var(--bg-elevated)', color: dropPct === Math.abs(d) ? (Math.abs(d) >= 20 ? '#fff' : 'var(--text-primary)') : 'var(--text-muted)', cursor: 'pointer' }}>{d === 0 ? '0' : `${d}%`}</motion.button>))}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-            {[{ label: 'ORIGINAL', value: `₹${fmtL(pledgeValue)}`, color: 'var(--text-primary)' }, { label: 'AFTER DROP', value: `₹${fmtL(pledgeValue * (1 - dropPct / 100))}`, color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' }, { label: 'LTV', value: `${(dropPct > 0 ? dropLTV : curLTV).toFixed(1)}%`, color: dropStatus.color }].map((s, i) => (
+            {[{ label: 'ORIGINAL', value: fmtL(pledgeValue), color: 'var(--text-primary)' }, { label: 'AFTER DROP', value: fmtL(pledgeValue * (1 - dropPct / 100)), color: dropPct > 0 ? '#EF4444' : 'var(--text-primary)' }, { label: 'LTV', value: `${(dropPct > 0 ? dropLTV : curLTV).toFixed(1)}%`, color: dropStatus.color }].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-elevated)', borderRadius: 8, padding: '7px 9px' }}>
                 <p style={{ fontSize: 8, color: 'var(--text-muted)', marginBottom: 2, fontFamily: 'var(--font-mono)' }}>{s.label}</p>
                 <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: s.color }}>{s.value}</p>
@@ -320,7 +351,13 @@ export default function Dashboard({ onPay }) {
   const ltvColor    = ltvRatio >= 90 ? 'var(--red)' : ltvRatio >= 80 ? 'var(--amber)' : 'var(--jade)'
 
   const displayedTxns = showAllTxns ? transactions : transactions.slice(0, 5)
-  const txnIcon = (name) => { const n = (name || '').toLowerCase(); if (n.includes('zomato') || n.includes('swiggy')) return '🍕'; if (n.includes('uber') || n.includes('ola')) return '🚗'; if (n.includes('amazon') || n.includes('flipkart')) return '📦'; return '💳' }
+  const txnIcon = (name) => {
+    const n = (name || '').toLowerCase()
+    if (n.includes('zomato') || n.includes('swiggy')) return '🍕'
+    if (n.includes('uber') || n.includes('ola')) return '🚗'
+    if (n.includes('amazon') || n.includes('flipkart')) return '📦'
+    return '💳'
+  }
 
   const handleViewAll = async () => {
     if (showAllTxns) { setShowAllTxns(false); return }
@@ -341,9 +378,11 @@ export default function Dashboard({ onPay }) {
 
   return (
     <div ref={scrollRef} className="screen">
+      {/* Risk Simulator FAB */}
       <motion.button whileTap={{ scale: 0.9 }} onClick={() => setShowSimulator(true)}
         style={{ position: 'fixed', right: 16, bottom: 100, zIndex: 150, width: 46, height: 46, borderRadius: 15, background: 'linear-gradient(135deg, #1A2520, #0E1C18)', border: '1px solid var(--jade-border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, boxShadow: '0 4px 16px rgba(0,212,161,0.15)', cursor: 'pointer' }}>⚡</motion.button>
 
+      {/* Background blobs */}
       <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
         <LiquidBlob size={300} color="var(--jade)" top={`${-80 - scrollY * 0.2}px`} right="-70px" />
         <LiquidBlob size={200} color="var(--jade)" top={`${380 - scrollY * 0.1}px`} left="-50px" delay={3} />
@@ -375,13 +414,13 @@ export default function Dashboard({ onPay }) {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats — FIX: fmtL() already has ₹, no prefix needed */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 16 }}>
             {[
-              { l: 'OUTSTANDING', v: `₹${fmtL(outstanding)}`, c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
-              { l: 'LTV RATIO', v: `${ltvRatio.toFixed(1)}%`, c: ltvColor },
-              { l: 'APR', v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
+              { l: 'OUTSTANDING', v: fmtL(outstanding),          c: outstanding > 0 ? 'var(--amber)' : 'var(--text-secondary)' },
+              { l: 'LTV RATIO',   v: `${ltvRatio.toFixed(1)}%`,  c: ltvColor },
+              { l: 'APR',         v: `${account?.apr || '12'}%`, c: 'var(--text-secondary)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 10px', textAlign: 'center' }}>
                 <p style={{ fontSize: 7, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500, marginBottom: 5 }}>{s.l}</p>
@@ -393,7 +432,7 @@ export default function Dashboard({ onPay }) {
 
         {/* Health banner */}
         <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}
-          style={{ background: ltvRatio >= 80 ? (ltvRatio >= 90 ? 'var(--red-dim)' : 'var(--amber-dim)') : 'rgba(0,212,161,0.06)', border: `1px solid ${ltvRatio >= 90 ? 'rgba(224,82,82,0.25)' : ltvRatio >= 80 ? 'rgba(224,160,48,0.25)' : 'rgba(0,212,161,0.12)'}`, borderRadius: 14, padding: '11px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
+          style={{ background: ltvRatio >= 90 ? 'var(--red-dim)' : ltvRatio >= 80 ? 'var(--amber-dim)' : 'rgba(0,212,161,0.06)', border: `1px solid ${ltvRatio >= 90 ? 'rgba(224,82,82,0.25)' : ltvRatio >= 80 ? 'rgba(224,160,48,0.25)' : 'rgba(0,212,161,0.12)'}`, borderRadius: 14, padding: '11px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}
           onClick={() => setActiveTab('portfolio')}>
           <div style={{ width: 28, height: 28, borderRadius: 9, background: ltvRatio >= 80 ? 'rgba(239,68,68,0.12)' : 'rgba(0,212,161,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={ltvRatio >= 80 ? (ltvRatio >= 90 ? '#EF4444' : '#F59E0B') : 'var(--jade)'} strokeWidth="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -449,7 +488,8 @@ export default function Dashboard({ onPay }) {
                       </p>
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>+₹{fmtL(txn.amount)}</p>
+                      {/* FIX: fmtL already has ₹ */}
+                      <p style={{ fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-mono)', marginBottom: 2 }}>+{fmtL(txn.amount)}</p>
                       <p style={{ fontSize: 9, color: txn.status === 'SETTLED' ? 'var(--jade)' : 'var(--text-muted)', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{txn.status}</p>
                     </div>
                   </div>
@@ -459,7 +499,7 @@ export default function Dashboard({ onPay }) {
           </motion.div>
         )}
 
-        {/* Portfolio peek */}
+        {/* Portfolio peek — FIX: fmtL already has ₹ */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
           <div style={{ background: 'linear-gradient(135deg, rgba(0,212,161,0.07), rgba(0,212,161,0.02))', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '16px', marginBottom: 24, marginTop: 16, cursor: 'pointer' }}
             onClick={() => setActiveTab('portfolio')}>
@@ -471,7 +511,7 @@ export default function Dashboard({ onPay }) {
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
               </div>
             </div>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>₹{fmtL(ltv?.current_pledge_value || 0)}</p>
+            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>{fmtL(ltv?.current_pledge_value || 0)}</p>
             <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Pledged portfolio value</p>
           </div>
         </motion.div>
