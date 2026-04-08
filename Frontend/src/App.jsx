@@ -59,14 +59,16 @@ const MARKET_TICKERS = [
 const CUTE_MESSAGES = [
   '✦ Your money is working while you relax 🌿',
   '✦ Wealth grows quietly — like your portfolio 📈',
-  '✦ Still invested. Still earning. Pretty neat, right?',
-  '✦ You pledged smart. CRED would be proud.',
+  '✦ Still invested. Still earning. That\'s LienPay.',
+  '✦ Smart investor. Smarter credit. ✨',
   '✦ Your mutual funds are doing their thing 💚',
-  '✦ Zero selling. Pure liquidity magic ✨',
+  '✦ Zero selling. Pure liquidity magic.',
   '✦ Compound interest is your silent partner 🤫',
-  '✦ Your portfolio is healthy. Treat yourself today.',
+  '✦ Portfolio healthy. Account happy. You\'re doing great.',
   '✦ Wealth-backed credit — because you\'ve earned it 🏆',
-  '✦ Money flows where intention goes 🎯',
+  '✦ Pledge. Borrow. Repay. Repeat. Life is good.',
+  '✦ Your wealth is your credit. Revolutionary, isn\'t it?',
+  '✦ Invested & liquid — the best of both worlds 🌏',
 ]
 
 function MarketTicker({ portfolioValue }) {
