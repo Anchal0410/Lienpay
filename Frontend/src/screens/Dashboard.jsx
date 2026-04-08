@@ -18,22 +18,6 @@ const getGreeting = () => {
   if (h >= 17 && h < 21) return 'Good evening'
   return 'Good night'
 }
-import { useEffect, useState, useRef } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
-import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
-import useStore from '../store/useStore'
-import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
-
-const fmt  = (n) => parseFloat(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
-const fmtL = (n) => { const v = parseFloat(n || 0); return v >= 100000 ? `₹${(v / 100000).toFixed(2)}L` : `₹${fmt(v)}` }
-const getGreeting = () => {
-  const h = new Date().getHours()
-  if (h >= 5  && h < 12) return 'Good morning'
-  if (h >= 12 && h < 17) return 'Good afternoon'
-  if (h >= 17 && h < 21) return 'Good evening'
-  return 'Good night'
-}
-
 // ─────────────────────────────────────────────────────────────
 // NOTIFICATION BOTTOM SHEET
 // Renders as a bottom sheet — ZERO overlap with page content above
