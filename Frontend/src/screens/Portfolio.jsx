@@ -148,8 +148,8 @@ export default function Portfolio() {
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <p style={{ fontSize: 8, color: 'var(--text-muted)' }}>0%</p>
-              <p style={{ fontSize: 8, color: '#F59E0B' }}>50% Govt limit</p>
-              <p style={{ fontSize: 8, color: '#EF4444' }}>80% UPI freeze</p>
+              <p style={{ fontSize: 8, color: '#F59E0B' }}>50% Watch zone</p>
+              <p style={{ fontSize: 8, color: '#EF4444' }}>80% Margin call</p>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
