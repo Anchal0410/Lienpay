@@ -59,49 +59,34 @@ function OutstandingDonut({ outstanding, available }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// UPI REPAYMENT FLOW
-// Step 1 — show amount + "Pay via UPI" button
-// Step 2 — open upi:// deep link → user lands in GPay/PhonePe
-// Step 3 — user returns to app, sees "Did you pay?" confirmation
-// Step 4 — confirm → backend updated, credit restored
+// UPI REPAYMENT MODAL
+// Shows amount + destination, opens UPI app, auto-confirms on return
 // ─────────────────────────────────────────────────────────────
 function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
-  const [step, setStep] = useState('preview')   // preview | waiting | confirming
-  const [confirming, setConfirming] = useState(false)
-  const timerRef = useRef(null)
-
-  // Unique reference for this repayment attempt
+  const [processing, setProcessing] = useState(false)
   const repayRef = useRef(`LP${Date.now().toString(36).toUpperCase()}`)
   const upiLink  = buildUPILink(amount, repayRef.current)
 
-  const openUPIApp = () => {
-    setStep('waiting')
-    // Open UPI app — works on any Android/iOS UPI-capable device
+  const openUPIApp = async () => {
+    setProcessing(true)
+    // Fire the UPI deep link — phone shows GPay / PhonePe / Paytm chooser
     window.location.href = upiLink
-
-    // After 3s, show the "Did you complete?" confirmation
-    // (user will have returned from UPI app by then, or can tap manually)
-    timerRef.current = setTimeout(() => setStep('confirm'), 3000)
-  }
-
-  // Cleanup timer on unmount
-  useEffect(() => () => clearTimeout(timerRef.current), [])
-
-  const handleConfirm = async () => {
-    setConfirming(true)
-    try {
-      await onConfirmed(amount)
-    } catch(e) {
-      toast.error('Could not confirm repayment. Contact support if amount was debited.')
-    } finally {
-      setConfirming(false)
-    }
+    // Wait 2.5s for the user to switch apps and come back,
+    // then auto-confirm the repayment (we assume it went through)
+    setTimeout(async () => {
+      try {
+        await onConfirmed(amount)
+      } catch(e) {
+        toast.error('Could not confirm repayment — contact support if amount was debited.')
+        setProcessing(false)
+      }
+    }, 2500)
   }
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.72)', backdropFilter: 'blur(5px)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
-      onClick={step === 'preview' ? onClose : undefined}>
+      onClick={!processing ? onClose : undefined}>
 
       <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', stiffness: 320, damping: 38 }}
         style={{ background: 'var(--bg-elevated)', borderRadius: '24px 24px 0 0', padding: '20px 20px 44px', width: '100%' }}
@@ -113,15 +98,13 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
         </div>
 
         <AnimatePresence mode="wait">
-
-          {/* ── STEP 1: Preview ── */}
-          {step === 'preview' && (
-            <motion.div key="preview" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+          {!processing ? (
+            <motion.div key="preview" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
               <p style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 12 }}>
                 {isInterestOnly ? 'INTEREST PAYMENT' : 'CREDIT LINE REPAYMENT'}
               </p>
 
-              {/* Amount card */}
+              {/* Amount */}
               <div style={{ background: 'linear-gradient(135deg, #0d1f17, #081510)', border: '1px solid rgba(0,212,161,0.18)', borderRadius: 20, padding: '22px 20px', marginBottom: 16, textAlign: 'center' }}>
                 <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>Amount to pay</p>
                 <p style={{ fontFamily: 'var(--font-display)', fontSize: 44, color: 'var(--jade)', lineHeight: 1, marginBottom: 6 }}>{fmt(amount)}</p>
@@ -130,115 +113,53 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
                 </p>
               </div>
 
-              {/* Payment destination */}
+              {/* Destination */}
               <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '12px 16px', marginBottom: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Pay to</p>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)' }}>{NBFC_NAME}</p>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>UPI ID</p>
-                  <p style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{NBFC_REPAYMENT_VPA}</p>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>Reference</p>
-                  <p style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{repayRef.current}</p>
-                </div>
+                {[
+                  { label: 'Pay to',    value: NBFC_NAME,              mono: false },
+                  { label: 'UPI ID',    value: NBFC_REPAYMENT_VPA,     mono: true  },
+                  { label: 'Reference', value: repayRef.current,        mono: true  },
+                ].map((row, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: i < 2 ? 8 : 0 }}>
+                    <p style={{ fontSize: 11, color: 'var(--text-muted)' }}>{row.label}</p>
+                    <p style={{ fontSize: 12, fontWeight: 600, color: row.mono ? 'var(--jade)' : 'var(--text-primary)', fontFamily: row.mono ? 'var(--font-mono)' : 'inherit' }}>{row.value}</p>
+                  </div>
+                ))}
               </div>
 
-              {/* Supported UPI app icons */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, justifyContent: 'center' }}>
-                <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>Opens via</p>
+              {/* App badges */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 18, justifyContent: 'center' }}>
+                <p style={{ fontSize: 10, color: 'var(--text-muted)' }}>Opens in</p>
                 {['GPay', 'PhonePe', 'Paytm', 'BHIM'].map(app => (
                   <span key={app} style={{ fontSize: 9, padding: '3px 8px', borderRadius: 6, background: 'var(--bg-overlay)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{app}</span>
                 ))}
               </div>
 
-              {/* Main CTA */}
+              {/* CTA */}
               <motion.button whileTap={{ scale: 0.97 }} onClick={openUPIApp}
                 style={{ width: '100%', height: 54, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 16, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                {/* UPI logo mark */}
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                   <rect width="24" height="24" rx="6" fill="rgba(0,0,0,0.15)"/>
                   <path d="M7 12h10M12 7l5 5-5 5" stroke="#000" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
                 Pay {fmt(amount)} via UPI
               </motion.button>
-
               <motion.button whileTap={{ scale: 0.97 }} onClick={onClose}
                 style={{ width: '100%', height: 44, borderRadius: 14, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, border: 'none', cursor: 'pointer' }}>
                 Cancel
               </motion.button>
             </motion.div>
-          )}
-
-          {/* ── STEP 2: Waiting for UPI app ── */}
-          {step === 'waiting' && (
-            <motion.div key="waiting" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              style={{ textAlign: 'center', padding: '16px 0' }}>
-              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.5, repeat: Infinity, ease: 'linear' }}
-                style={{ width: 52, height: 52, borderRadius: '50%', border: '2.5px solid var(--jade-border)', borderTopColor: 'var(--jade)', margin: '0 auto 16px' }} />
-              <p style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Opening UPI app…</p>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 24 }}>
-                Complete the payment of {fmt(amount)} in your UPI app, then come back here.
-              </p>
-              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setStep('confirm')}
-                style={{ padding: '12px 28px', borderRadius: 14, background: 'var(--bg-overlay)', border: '1px solid var(--border)', color: 'var(--text-secondary)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                I'm back — Confirm payment
-              </motion.button>
-            </motion.div>
-          )}
-
-          {/* ── STEP 3: Confirm ── */}
-          {step === 'confirm' && (
-            <motion.div key="confirm" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              style={{ textAlign: 'center', padding: '8px 0' }}>
-
-              {/* Question icon */}
-              <div style={{ width: 64, height: 64, borderRadius: 20, background: 'rgba(0,212,161,0.08)', border: '1px solid rgba(0,212,161,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/>
-                  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>
-                  <line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-              </div>
-
-              <p style={{ fontSize: 18, fontWeight: 700, marginBottom: 6 }}>Did the payment go through?</p>
-              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 8 }}>
-                Check your UPI app — if {fmt(amount)} was debited, tap confirm below.
-              </p>
-              <p style={{ fontSize: 11, color: 'var(--jade)', fontFamily: 'var(--font-mono)', marginBottom: 24 }}>
-                Ref: {repayRef.current}
-              </p>
-
-              {/* Confirm */}
-              <motion.button whileTap={{ scale: 0.97 }} onClick={handleConfirm} disabled={confirming}
-                style={{ width: '100%', height: 54, borderRadius: 16, background: 'linear-gradient(135deg, var(--jade), #00A878)', color: '#000', fontSize: 15, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                {confirming ? (
-                  <>
-                    <motion.span animate={{ rotate: 360 }} transition={{ duration: 0.8, repeat: Infinity, ease: 'linear' }}>⟳</motion.span>
-                    Confirming…
-                  </>
-                ) : (
-                  <>
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.8"><path d="M20 6L9 17L4 12"/></svg>
-                    Yes, Payment Successful
-                  </>
-                )}
-              </motion.button>
-
-              {/* Not paid — try again */}
-              <motion.button whileTap={{ scale: 0.97 }} onClick={() => setStep('preview')}
-                style={{ width: '100%', height: 44, borderRadius: 14, background: 'transparent', color: 'var(--text-muted)', fontSize: 13, border: 'none', cursor: 'pointer', marginBottom: 6 }}>
-                Payment failed — Try again
-              </motion.button>
-
-              <p style={{ fontSize: 10, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                If debited but not reflecting, contact support with ref {repayRef.current}
+          ) : (
+            <motion.div key="processing" initial={{ opacity: 0 }} animate={{ opacity: 1 }}
+              style={{ textAlign: 'center', padding: '24px 0 8px' }}>
+              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                style={{ width: 52, height: 52, borderRadius: '50%', border: '2.5px solid var(--jade-border)', borderTopColor: 'var(--jade)', margin: '0 auto 20px' }} />
+              <p style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Processing repayment…</p>
+              <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                Completing payment of {fmt(amount)} and restoring your credit.
               </p>
             </motion.div>
           )}
-
         </AnimatePresence>
       </motion.div>
     </motion.div>
