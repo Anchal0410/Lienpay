@@ -3,9 +3,9 @@ const cors         = require('cors');
 const helmet       = require('helmet');
 const rateLimit    = require('express-rate-limit');
 const crypto       = require('crypto');
-const { testConnection } = require('./src/config/database');
-const { connectRedis }   = require('./src/config/redis');
-const { logger }         = require('./src/config/logger');
+const { testConnection } = require('./config/database');
+const { connectRedis }   = require('./config/redis');
+const { logger }         = require('./config/logger');
 
 const app  = express();
 const PORT = process.env.PORT || 3000;
