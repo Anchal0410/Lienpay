@@ -73,7 +73,7 @@ function NotificationSheet({ creditAccount, ltvHealth, open, onClose }) {
       id: 'clou', type: 'info',
       icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2.5"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>,
       title: 'CLOU Credit Active',
-      body: `${fmtL(creditAccount?.available_credit)} available via UPI · ${creditAccount?.upi_vpa}`,
+      body: `${fmtL(creditAccount?.available_credit)} available via UPI · ${(creditAccount?.upi_vpa || '').replace(/@lienpay$/, '@yesbank')}`,
       color: 'var(--jade)', time: 'Active',
     })
   }
