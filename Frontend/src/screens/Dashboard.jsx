@@ -324,6 +324,167 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
 // ─────────────────────────────────────────────────────────────
 // DASHBOARD
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// WEALTH INSIGHT CARD
+// Replaces the redundant portfolio peek.
+// Shows data-backed insights that change each session —
+// cost savings, interest math, LTV analysis, smart nudges.
+// Tappable → navigates to the relevant screen.
+// ─────────────────────────────────────────────────────────────
+function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, transactions, onNavigate }) {
+  // Pick the most contextually relevant insight each session
+  // Priority order: urgent first, then informational
+  const getInsight = () => {
+    const savings = Math.round((outstanding || available) * 0.55 * 12 / 100)  // vs credit card at 36% APR
+    const freeTxns = (transactions || []).filter(t => t.is_in_free_period).length
+    const totalSpent = (transactions || []).reduce((s, t) => s + parseFloat(t.amount || 0), 0)
+    const sessionSeed = Math.floor(Date.now() / 86400000) % 5  // changes daily
+
+    const insights = [
+      // 1. Show interest savings if actively using credit
+      outstanding > 0 && savings > 0 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#C9A449" strokeWidth="1.8">
+            <line x1="12" y1="1" x2="12" y2="23"/>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        ),
+        accent: '#C9A449',
+        label: 'INTEREST SAVING',
+        headline: `You're saving ~${fmtL(savings)}/yr`,
+        subtext: 'vs a credit card at 36% APR. Your wealth-backed rate is 55% cheaper.',
+        cta: 'See billing →',
+        tab: 'billing',
+      } : null,
+
+      // 2. Free period active
+      freeTxns > 0 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        ),
+        accent: 'var(--jade)',
+        label: 'INTEREST-FREE',
+        headline: `${freeTxns} payment${freeTxns > 1 ? 's' : ''} still in free period`,
+        subtext: 'No interest charges yet. Pay before due date and you pay zero extra.',
+        cta: 'View statements →',
+        tab: 'billing',
+      } : null,
+
+      // 3. Credit headroom tip
+      available > 0 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8B7BD4" strokeWidth="1.8">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+          </svg>
+        ),
+        accent: '#8B7BD4',
+        label: 'YOUR CREDIT LINE',
+        headline: `${fmtL(available)} ready to deploy`,
+        subtext: 'Scan any merchant QR to pay instantly. Repay in 30 days interest-free.',
+        cta: 'Scan & Pay →',
+        tab: null,
+        action: 'pay',
+      } : null,
+
+      // 4. Portfolio not selling = compounding continues
+      creditLimit > 0 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06B6D4" strokeWidth="1.8">
+            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+            <polyline points="17 6 23 6 23 12"/>
+          </svg>
+        ),
+        accent: '#06B6D4',
+        label: 'SMART MONEY',
+        headline: 'Your portfolio keeps growing',
+        subtext: 'You borrowed against your funds — not sold them. Your SIPs and returns continue uninterrupted.',
+        cta: 'View portfolio →',
+        tab: 'portfolio',
+      } : null,
+
+      // 5. LTV health encouragement
+      ltvRatio < 50 && creditLimit > 0 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="1.8">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+        ),
+        accent: 'var(--jade)',
+        label: 'COLLATERAL HEALTH',
+        headline: 'LTV at safe levels — all good',
+        subtext: `Only ${ltvRatio.toFixed(1)}% utilised. Your portfolio has plenty of buffer before any alert triggers.`,
+        cta: 'Portfolio health →',
+        tab: 'portfolio',
+      } : null,
+    ].filter(Boolean)
+
+    // Return most urgent or rotate daily
+    return insights[0] || insights[sessionSeed % insights.length] || {
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 8v4"/><path d="M12 16h.01"/>
+        </svg>
+      ),
+      accent: 'var(--jade)',
+      label: 'DID YOU KNOW',
+      headline: 'Pledge more, borrow more',
+      subtext: 'Add more mutual fund folios to increase your credit limit. MF Central processes instantly.',
+      cta: 'Pledge more →',
+      tab: 'portfolio',
+    }
+  }
+
+  const insight = getInsight()
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+      <div
+        style={{
+          background: `linear-gradient(135deg, ${insight.accent}10, ${insight.accent}05)`,
+          border: `1px solid ${insight.accent}28`,
+          borderRadius: 18, padding: '16px 16px 14px', marginBottom: 24, marginTop: 16,
+          cursor: 'pointer', position: 'relative', overflow: 'hidden',
+        }}
+        onClick={() => insight.action === 'pay' ? null : insight.tab && onNavigate(insight.tab)}
+      >
+        {/* Subtle glow blob */}
+        <div style={{ position: 'absolute', top: -20, right: -20, width: 80, height: 80, borderRadius: '50%', background: `radial-gradient(circle, ${insight.accent}15, transparent)`, pointerEvents: 'none' }} />
+
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 10, background: `${insight.accent}14`, border: `1px solid ${insight.accent}25`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            {insight.icon}
+          </div>
+          <span style={{ fontSize: 9, color: insight.accent, fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '2px' }}>
+            {insight.label}
+          </span>
+        </div>
+
+        {/* Headline */}
+        <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 5, lineHeight: 1.3 }}>
+          {insight.headline}
+        </p>
+
+        {/* Subtext */}
+        <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: 10 }}>
+          {insight.subtext}
+        </p>
+
+        {/* CTA */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 11, color: insight.accent, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>
+            {insight.cta}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
 export default function Dashboard({ onPay }) {
   const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth, setTransactions, transactions, activeTab, setActiveTab } = useStore()
   const [loading, setLoading]             = useState(!creditAccount)
@@ -503,22 +664,15 @@ export default function Dashboard({ onPay }) {
           </motion.div>
         )}
 
-        {/* Portfolio peek — FIX: fmtL already has ₹ */}
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
-          <div style={{ background: 'linear-gradient(135deg, rgba(0,212,161,0.07), rgba(0,212,161,0.02))', border: '1px solid var(--jade-border)', borderRadius: 18, padding: '16px', marginBottom: 24, marginTop: 16, cursor: 'pointer' }}
-            onClick={() => setActiveTab('portfolio')}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>PORTFOLIO</span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                <div style={{ width: 5, height: 5, borderRadius: '50%', background: ltvColor }} />
-                <span style={{ fontSize: 9, color: ltvColor, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>{ltv?.status || 'GREEN'}</span>
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-              </div>
-            </div>
-            <p style={{ fontFamily: 'var(--font-display)', fontSize: 22 }}>{fmtL(ltv?.current_pledge_value || 0)}</p>
-            <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>Pledged portfolio value</p>
-          </div>
-        </motion.div>
+        {/* Wealth Insight Card — rotates every session with smart data-backed tips */}
+        <WealthInsightCard
+          outstanding={outstanding}
+          available={available}
+          creditLimit={creditLimit}
+          ltvRatio={ltvRatio}
+          transactions={transactions}
+          onNavigate={setActiveTab}
+        />
       </div>
 
       {/* Notification bottom sheet — renders outside scroll, zero overlap */}

@@ -290,9 +290,9 @@ export default function Splash({ onComplete }) {
           style={{ height: '100%', background: 'linear-gradient(90deg, var(--jade), var(--jade-bright))', borderRadius: 2 }} />
       </motion.div>
 
-      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.35 }} transition={{ delay: 1 }}
-        style={{ position: 'absolute', bottom: 24, left: 0, right: 0, textAlign: 'center', fontSize: 8, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '2px', zIndex: 10 }}>
-        BY ARTHASTRA INNOVATIONS
+      <motion.p initial={{ opacity: 0 }} animate={{ opacity: 0.72 }} transition={{ delay: 1.2, duration: 1 }}
+        style={{ position: 'absolute', bottom: 24, left: 0, right: 0, textAlign: 'center', fontSize: 10, color: 'rgba(0,212,161,0.6)', fontFamily: 'var(--font-mono)', letterSpacing: '3px', zIndex: 10 }}>
+        BY ARTHASTRA INNOVATIONS PVT LTD
       </motion.p>
     </div>
   )

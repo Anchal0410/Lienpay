@@ -141,15 +141,13 @@ export default function Portfolio() {
               <p style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: ltvColor }}>{outstanding <= 0 ? '0.0%' : `${displayLtvRatio.toFixed(1)}%`}</p>
             </div>
             <div style={{ height: 5, borderRadius: 3, background: 'var(--bg-elevated)', overflow: 'hidden', position: 'relative', marginBottom: 4 }}>
-              <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: 1, background: 'rgba(245,158,11,0.4)' }} />
               <div style={{ position: 'absolute', left: '80%', top: 0, bottom: 0, width: 1, background: 'rgba(239,68,68,0.5)' }} />
               <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(outstanding > 0 ? displayLtvRatio : 0, 100)}%` }} transition={{ duration: 1.2, ease: 'easeOut' }}
                 style={{ height: '100%', background: ltvStatus === 'CRITICAL' || ltvStatus === 'ACTION' ? 'linear-gradient(90deg, #EF4444, #DC2626)' : ltvStatus === 'WATCH' ? 'linear-gradient(90deg, var(--jade), #F59E0B)' : 'linear-gradient(90deg, var(--jade), #00A878)', borderRadius: 3 }} />
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <p style={{ fontSize: 8, color: 'var(--text-muted)' }}>0%</p>
-              <p style={{ fontSize: 8, color: '#F59E0B' }}>50% Watch zone</p>
-              <p style={{ fontSize: 8, color: '#EF4444' }}>80% Margin call</p>
+              <p style={{ fontSize: 8, color: '#EF4444' }}>80% Margin call trigger</p>
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
