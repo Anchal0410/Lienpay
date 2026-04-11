@@ -20,11 +20,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-// POST /api/users/apr-product directly
-const postAprProduct = (data) => fetch(
-  (import.meta.env.VITE_API_URL || 'https://lienpay-production.up.railway.app') + '/api/users/apr-product',
-  { method:'POST', headers:{'Content-Type':'application/json','Authorization':`Bearer ${localStorage.getItem('lp_token')}`}, body:JSON.stringify(data) }
-).then(r=>r.json())
+import { post } from '../api/client'
 
 export default function APRChoiceStep({ onChoose, creditLimit }) {
   const [selected, setSelected] = useState(null)
@@ -62,7 +58,7 @@ export default function APRChoiceStep({ onChoose, creditLimit }) {
     if (!selected) return toast.error('Please select a plan')
     setLoading(true)
     try {
-      await postAprProduct({ apr_product: selected })
+      await post('/api/users/apr-product', { apr_product: selected })
       onChoose(selected)
     } catch (err) {
       // Non-blocking — even if this fails, we pass choice locally
