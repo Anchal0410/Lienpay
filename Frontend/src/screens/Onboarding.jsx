@@ -6,6 +6,7 @@ import {
   initiateAAConsent, fetchPortfolio, evaluateRisk,
   initiatePledge, confirmPledgeOTP, notifyNBFC,
   requestSanction, getKFS, acceptKFS, activateCredit, setupPIN,
+  setAprProduct,
 } from '../api/client'
 import useStore from '../store/useStore'
 import { LiquidBlob } from '../components/LiquidUI'
