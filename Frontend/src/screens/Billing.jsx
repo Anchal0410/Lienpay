@@ -167,19 +167,26 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
 }
 
 // ── Post-30-day plan card ─────────────────────────────────────
-function RepaymentPlanCard({ outstanding, apr, onRepay }) {
+function RepaymentPlanCard({ outstanding, apr, onRepay, inFreePeriod, dueDate }) {
   const [plan, setPlan] = useState('standard')
   const stdApr     = apr || 12
   const monthlyInt = outstanding * (18 / 12 / 100)
+  const fmtDate2   = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      style={{ background: 'rgba(245,158,11,0.05)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 18, padding: '16px', marginBottom: 16 }}>
+      style={{ background: inFreePeriod ? 'rgba(0,212,161,0.04)' : 'rgba(245,158,11,0.05)', border: `1px solid ${inFreePeriod ? 'rgba(0,212,161,0.15)' : 'rgba(245,158,11,0.2)'}`, borderRadius: 18, padding: '16px', marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <p style={{ fontSize: 11, color: '#F59E0B', fontWeight: 700 }}>FREE PERIOD ENDED — INTEREST IS ACCRUING</p>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inFreePeriod ? 'var(--jade)' : '#F59E0B'} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <p style={{ fontSize: 11, color: inFreePeriod ? 'var(--jade)' : '#F59E0B', fontWeight: 700 }}>
+          {inFreePeriod ? `INTEREST-FREE UNTIL ${fmtDate2(dueDate)} — CHOOSE HOW TO REPAY` : 'FREE PERIOD ENDED — INTEREST IS ACCRUING'}
+        </p>
       </div>
-      <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>Choose your repayment plan:</p>
+      <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+        {inFreePeriod
+          ? 'Pay in full now with zero interest, or choose revolving to keep the line alive by paying just the monthly interest after your due date.'
+          : 'Choose your repayment plan:'}
+      </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {[
           { id: 'standard', label: 'Pay Outstanding', badge: 'Recommended', sublabel: `${stdApr}% APR`, desc: 'Pay full amount. Clears balance entirely.', amount: outstanding, color: 'var(--jade)' },
@@ -306,13 +313,19 @@ export default function Billing() {
           </p>
         </motion.div>
 
-        {/* Post-30-day plan */}
-        {hasOverdueTxns && outstanding > 0 && (
-          <RepaymentPlanCard outstanding={outstanding} apr={apr} onRepay={initiateRepay} />
+        {/* Repayment plan — always shown when there is outstanding balance */}
+        {outstanding > 0 && (
+          <RepaymentPlanCard
+            outstanding={outstanding}
+            apr={apr}
+            onRepay={initiateRepay}
+            inFreePeriod={freePeriodTxns.length > 0 && !hasOverdueTxns}
+            dueDate={dueDate}
+          />
         )}
 
-        {/* Standard repay */}
-        {outstanding > 0 && !hasOverdueTxns && (
+        {/* Standard repay fallback — never shown now that card handles everything */}
+        {false && outstanding > 0 && !hasOverdueTxns && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
             {/* Full repay */}
             <motion.button whileTap={{ scale: 0.97 }} onClick={() => initiateRepay(outstanding)}
