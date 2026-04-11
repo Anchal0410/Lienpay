@@ -317,7 +317,7 @@ export default function Onboarding({ onComplete }) {
                 </motion.div>
                 <p style={{ fontSize: 15, fontWeight: 700, marginBottom: 6 }}>Connect your Mutual Fund Portfolio</p>
                 <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
-                  We'll securely fetch your holdings via Account Aggregator and calculate your eligible credit limit.
+                  We will securely fetch your holdings via Account Aggregator and calculate your eligible credit limit.
                 </p>
                 <div style={{ background: 'var(--jade-dim)', border: '1px solid var(--jade-border)', borderRadius: 12, padding: '12px 14px', textAlign: 'left' }}>
                   <p style={{ fontSize: 11, color: 'var(--jade)', fontWeight: 700, marginBottom: 4 }}>Dev / Demo Mode</p>
@@ -502,7 +502,7 @@ export default function Onboarding({ onComplete }) {
                   { label: 'Free period', value: 'All spends in a cycle are interest-free until the due date' },
                   { label: 'Due date', value: 'Around the 1st of the month after next — ~30–60 days of zero interest' },
                   { label: 'Pay in full', value: 'Zero interest on everything. Most users do this.' },
-                  { label: 'Can't pay in full?', value: 'Pay just the monthly interest (1.5%) to keep the credit line active. Your balance rolls to next month at 18% APR.' },
+                  { label: 'Cannot pay in full?', value: 'Pay just the monthly interest (1.5%) to keep the credit line active. Your balance rolls to next month at 18% APR.' },
                 ].map((row, i) => (
                   <div key={i} style={{ display: 'flex', gap: 12, marginBottom: i < 4 ? 8 : 0, alignItems: 'flex-start' }}>
                     <p style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 90, flexShrink: 0, paddingTop: 1 }}>{row.label}</p>

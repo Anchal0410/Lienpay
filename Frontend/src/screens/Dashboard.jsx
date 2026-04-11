@@ -439,7 +439,7 @@ function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, tran
         ),
         accent: '#C9A449',
         label: 'INTEREST SAVING',
-        headline: `You're saving ~${fmtL(savings)}/yr`,
+        headline: `You are saving ~${fmtL(savings)}/yr`,
         subtext: 'vs a credit card at 36% APR. Your wealth-backed rate is 55% cheaper.',
         cta: 'See billing →',
         tab: 'billing',
