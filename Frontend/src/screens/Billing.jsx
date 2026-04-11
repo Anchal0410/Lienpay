@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getStatements, getRepayments, mockRepay, getTxnHistory, getCreditStatus } from '../api/client'
+import { getStatements, getRepayments, mockRepay, getCreditStatus } from '../api/client'
 import useStore from '../store/useStore'
 import toast from 'react-hot-toast'
 
@@ -167,25 +167,43 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
 }
 
 // ── Post-30-day plan card ─────────────────────────────────────
-function RepaymentPlanCard({ outstanding, apr, onRepay, inFreePeriod, dueDate }) {
+function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, daysLeft }) {
   const [plan, setPlan] = useState('standard')
   const stdApr     = apr || 12
   const monthlyInt = outstanding * (18 / 12 / 100)
-  const fmtDate2   = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
+  const fmtDate2   = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+
+  // isPastDue = due_date has passed (credit card model — free for entire cycle until due_date)
+  const headerColor = isPastDue ? '#F59E0B' : 'var(--jade)'
+  const headerBg    = isPastDue ? 'rgba(245,158,11,0.05)' : 'rgba(0,212,161,0.04)'
+  const headerBdr   = isPastDue ? 'rgba(245,158,11,0.2)' : 'rgba(0,212,161,0.15)'
 
   return (
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-      style={{ background: inFreePeriod ? 'rgba(0,212,161,0.04)' : 'rgba(245,158,11,0.05)', border: `1px solid ${inFreePeriod ? 'rgba(0,212,161,0.15)' : 'rgba(245,158,11,0.2)'}`, borderRadius: 18, padding: '16px', marginBottom: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={inFreePeriod ? 'var(--jade)' : '#F59E0B'} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        <p style={{ fontSize: 11, color: inFreePeriod ? 'var(--jade)' : '#F59E0B', fontWeight: 700 }}>
-          {inFreePeriod ? `INTEREST-FREE UNTIL ${fmtDate2(dueDate)} — CHOOSE HOW TO REPAY` : 'FREE PERIOD ENDED — INTEREST IS ACCRUING'}
+      style={{ background: headerBg, border: `1px solid ${headerBdr}`, borderRadius: 18, padding: '16px', marginBottom: 16 }}>
+
+      {/* Billing cycle info bar */}
+      {dueDate && (
+        <div style={{ background: 'var(--bg-elevated)', borderRadius: 10, padding: '8px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+            DUE DATE
+          </p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: isPastDue ? '#F59E0B' : 'var(--jade)', fontFamily: 'var(--font-mono)' }}>
+            {fmtDate2(dueDate)} {!isPastDue && daysLeft !== null ? `· ${daysLeft}d left` : ''}
+          </p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={headerColor} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <p style={{ fontSize: 11, color: headerColor, fontWeight: 700 }}>
+          {isPastDue ? 'DUE DATE PASSED — INTEREST IS ACCRUING' : `INTEREST-FREE UNTIL ${fmtDate2(dueDate)}`}
         </p>
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
-        {inFreePeriod
-          ? 'Pay in full now with zero interest, or choose revolving to keep the line alive by paying just the monthly interest after your due date.'
-          : 'Choose your repayment plan:'}
+        {isPastDue
+          ? 'Your due date has passed. Choose how you'd like to handle the outstanding balance:'
+          : 'Pay in full by the due date to avoid all interest. Or choose revolving to keep the credit line alive by paying just the monthly interest.'}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {[
@@ -231,8 +249,6 @@ const DEMO_AUTOPAY = [
 export default function Billing() {
   const { statements, setStatements, creditAccount, setCreditAccount } = useStore()
   const [repayments, setRepayments]       = useState([])
-  const [activeTxns, setActiveTxns]       = useState([])
-  const [overdueCount, setOverdueCount]   = useState(0)
   const [loading, setLoading]             = useState(true)
   const [selected, setSelected]           = useState(null)
   const [customAmt, setCustomAmt]         = useState('')
@@ -251,14 +267,6 @@ export default function Billing() {
     const load = async () => {
       try { const res = await getStatements(); setStatements(Array.isArray(res.data) ? res.data : res.data?.statements || []) } catch(e) { setStatements([]) }
       try { const res = await getRepayments(); setRepayments(Array.isArray(res.data) ? res.data : res.data?.repayments || []) } catch(e) {}
-      try {
-        const r = await getTxnHistory({ limit: 50 })
-        const txns = (r.data?.transactions || []).filter(t => t.status === 'SETTLED' || t.status === 'PRE_AUTHORISED')
-        setActiveTxns(txns)
-        const now = Date.now()
-        const overdue = txns.filter(t => t.initiated_at && (now - new Date(t.initiated_at).getTime()) / 86400000 > 30).length
-        setOverdueCount(overdue)
-      } catch(e) {}
       try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
       setLoading(false)
     }
@@ -285,9 +293,19 @@ export default function Billing() {
     const creditRes = await getCreditStatus(); setCreditAccount(creditRes.data)
   }
 
-  const safeStatements  = Array.isArray(statements) ? statements : []
-  const freePeriodTxns  = activeTxns.filter(t => t.is_in_free_period)
-  const hasOverdueTxns  = overdueCount > 0 && outstanding > 0
+  const safeStatements = Array.isArray(statements) ? statements : []
+
+  // ── CREDIT CARD BILLING MODEL ────────────────────────────────
+  // Free period = entire billing cycle until due_date
+  // isPastDue = due_date has passed AND there's still outstanding balance
+  const today         = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dueDateObj    = dueDate ? new Date(dueDate) : null
+  const isPastDue     = dueDateObj && dueDateObj < today && outstanding > 0
+  const daysLeft      = dueDateObj ? Math.max(0, Math.ceil((dueDateObj - today) / 86400000)) : null
+  const cycleStart    = creditAccount?.current_cycle_start
+  const cycleEnd      = creditAccount?.current_cycle_end
+  const fmtCycleDate  = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
 
   return (
     <div className="screen">
@@ -300,32 +318,48 @@ export default function Billing() {
 
         <OutstandingDonut outstanding={outstanding} available={available} />
 
-        {/* Status banner */}
-        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          style={{ background: outstanding === 0 ? 'rgba(0,212,161,0.06)' : 'var(--amber-dim)', border: `1px solid ${outstanding === 0 ? 'rgba(0,212,161,0.12)' : 'rgba(245,158,11,0.2)'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 28, height: 28, borderRadius: 9, background: outstanding === 0 ? 'rgba(0,212,161,0.12)' : 'rgba(245,158,11,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={outstanding === 0 ? 'var(--jade)' : '#F59E0B'} strokeWidth="2.5">
-              {outstanding === 0 ? <><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> : <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="17" x2="12.01" y2="17"/></>}
-            </svg>
+        {/* Billing cycle banner */}
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+          {/* Cycle dates row */}
+          {(cycleStart || cycleEnd) && (
+            <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '8px 14px', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '1.5px' }}>BILLING CYCLE</p>
+              <p style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                {fmtCycleDate(cycleStart)} – {fmtCycleDate(cycleEnd)}
+              </p>
+            </div>
+          )}
+          {/* Status row */}
+          <div style={{ background: outstanding === 0 ? 'rgba(0,212,161,0.06)' : isPastDue ? 'rgba(245,158,11,0.06)' : 'rgba(0,212,161,0.04)', border: `1px solid ${outstanding === 0 ? 'rgba(0,212,161,0.12)' : isPastDue ? 'rgba(245,158,11,0.2)' : 'rgba(0,212,161,0.12)'}`, borderRadius: 14, padding: '12px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 9, background: outstanding === 0 ? 'rgba(0,212,161,0.12)' : isPastDue ? 'rgba(245,158,11,0.15)' : 'rgba(0,212,161,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={outstanding === 0 ? 'var(--jade)' : isPastDue ? '#F59E0B' : 'var(--jade)'} strokeWidth="2.5">
+                {outstanding === 0 ? <><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></> : <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="17" x2="12.01" y2="17"/></>}
+              </svg>
+            </div>
+            <p style={{ fontSize: 12, color: outstanding === 0 ? 'var(--jade)' : isPastDue ? '#F59E0B' : 'var(--jade)', fontWeight: 600 }}>
+              {outstanding === 0
+                ? 'No outstanding balance — all clear'
+                : isPastDue
+                  ? `Due date passed · Interest accruing on ${fmt(outstanding)}`
+                  : `${fmt(outstanding)} outstanding · Pay by ${fmtDate(dueDate)} · ${daysLeft}d interest-free`}
+            </p>
           </div>
-          <p style={{ fontSize: 12, color: outstanding === 0 ? 'var(--jade)' : '#F59E0B', fontWeight: 600 }}>
-            {outstanding === 0 ? 'No immediate repayment pressure' : hasOverdueTxns ? `Interest accruing · ${fmt(outstanding)} outstanding` : `${fmt(outstanding)} outstanding · Due ${fmtDate(dueDate)}`}
-          </p>
         </motion.div>
 
-        {/* Repayment plan — always shown when there is outstanding balance */}
+        {/* Repayment plan — shown whenever there is outstanding balance */}
         {outstanding > 0 && (
           <RepaymentPlanCard
             outstanding={outstanding}
             apr={apr}
             onRepay={initiateRepay}
-            inFreePeriod={freePeriodTxns.length > 0 && !hasOverdueTxns}
+            isPastDue={isPastDue}
             dueDate={dueDate}
+            daysLeft={daysLeft}
           />
         )}
 
         {/* Standard repay fallback — never shown now that card handles everything */}
-        {false && outstanding > 0 && !hasOverdueTxns && (
+        {false && outstanding > 0 && (
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
             {/* Full repay */}
             <motion.button whileTap={{ scale: 0.97 }} onClick={() => initiateRepay(outstanding)}

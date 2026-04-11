@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const { query }  = require('../../config/database');
+const { query }      = require('../../config/database');
 const { sendSMS }    = require('../utils/sms.service');
 const { logger, audit } = require('../../config/logger');
 const { transitionState, isUTRProcessed } = require('./state.machine');
@@ -9,8 +9,6 @@ const { routePayment, initiateReversal } = require('./upi.router');
 // ─────────────────────────────────────────────────────────────
 // TRANSACTION SERVICE — WORLD 1 MODEL
 // Closed-loop credit line payments via LienPay only.
-// NPCI-audit-ready with full state machine, idempotency,
-// reconciliation, and immutable audit trail.
 // ─────────────────────────────────────────────────────────────
 
 // ── MCC BLOCKLIST ─────────────────────────────────────────────
@@ -90,7 +88,7 @@ const validateTransaction = async (userId, merchantVPA, amount, mcc) => {
 
 // ── INITIATE TRANSACTION ──────────────────────────────────────
 const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, mcc, qrData }) => {
-  // 1. Idempotency check — prevent double-charge on rapid retries
+  // 1. Idempotency check
   const idempotencyKey = generateIdempotencyKey(userId, merchantVPA, amount);
   const { isDuplicate, cachedResult } = await checkIdempotency(idempotencyKey);
   if (isDuplicate) {
@@ -107,12 +105,26 @@ const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, 
   // 4. Pre-auth with NBFC
   const preAuthId = await preAuthoriseWithNBFC({
     userId, amount, merchantVPA, mcc, lspTxnRef,
-    accountId: account.account_id,
+    accountId:     account.account_id,
     nbfcAccountId: account.nbfc_account_id,
   });
 
-  // 5. Create transaction record in INITIATED state
-  const isInFreePeriod = parseFloat(account.outstanding) === 0;
+  // 5. Create transaction record
+  //
+  // ── CREDIT CARD BILLING MODEL ────────────────────────────────
+  // ALL transactions within a billing cycle are interest-free
+  // until the billing cycle's due_date.
+  // is_in_free_period = true for EVERY transaction.
+  // Interest only accrues after due_date passes on the total
+  // outstanding balance — NOT per transaction.
+  //
+  // OLD (wrong): const isInFreePeriod = parseFloat(account.outstanding) === 0;
+  //   This only marked the first transaction as free. Every subsequent
+  //   transaction was incorrectly marked as not free.
+  //
+  // NEW (correct): every transaction is free until due_date
+  const isInFreePeriod = true;
+
   const txnRes = await query(`
     INSERT INTO transactions (
       user_id, account_id, lsp_txn_ref, nbfc_pre_auth_id,
@@ -150,6 +162,7 @@ const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, 
     payer_vpa:     account.upi_vpa,
     status:        'PRE_AUTHORISED',
     free_period:   isInFreePeriod,
+    due_date:      account.due_date,
     routing_model: 'WORLD1',
     message:       'Pre-authorised. Enter UPI PIN to complete.',
   };
@@ -159,14 +172,13 @@ const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, 
 
   audit('TXN_INITIATED', userId, { txn_id: txnId, amount, merchant_vpa: merchantVPA });
 
-  // Visible in Railway logs
   console.log('\n' + '═'.repeat(60));
   console.log(`💳 PAYMENT INITIATED`);
   console.log(`   Txn ID:    ${txnId}`);
   console.log(`   Amount:    ₹${amount}`);
   console.log(`   Merchant:  ${merchantName} (${merchantVPA})`);
   console.log(`   Payer VPA: ${account.upi_vpa}`);
-  console.log(`   Free Period: ${isInFreePeriod ? 'YES — 30 days 0%' : 'NO — interest applies'}`);
+  console.log(`   Free Period: YES — interest-free until due_date (${account.due_date})`);
   console.log(`   Status:    PRE_AUTHORISED → awaiting PIN`);
   console.log(`   Routing:   WORLD 1 (CLOU)`);
   console.log('═'.repeat(60) + '\n');
@@ -175,7 +187,6 @@ const initiateTransaction = async ({ userId, merchantVPA, merchantName, amount, 
 };
 
 // ── COMPLETE PAYMENT AFTER PIN ────────────────────────────────
-// Called after user enters UPI PIN via PSP SDK
 const completePaymentAfterPIN = async (txnId, userId, pinVerified) => {
   return await routePayment(txnId, pinVerified);
 };
@@ -191,7 +202,10 @@ const preAuthoriseWithNBFC = async ({ userId, amount, merchantVPA, mcc, lspTxnRe
       {
         customer_id:     userId,
         nbfc_account_id: nbfcAccountId,
-        amount, merchant_vpa: merchantVPA, mcc, lsp_txn_ref: lspTxnRef,
+        amount,
+        merchant_vpa:    merchantVPA,
+        mcc,
+        lsp_txn_ref:     lspTxnRef,
         routing_type:    'WORLD1_CLOSED_LOOP',
         credit_type:     'LAMF_OD',
       },
@@ -248,9 +262,10 @@ const handleSettlementWebhook = async (webhookData) => {
     `, [txn.account_id, txn.amount]);
 
     await sendSMS(txn.user_id, 'TXN_SUCCESS', {
-      amount:   `₹${txn.amount.toLocaleString('en-IN')}`,
-      merchant: txn.merchant_name || txn.merchant_vpa,
-      available: 'Check app', utr: utr || 'N/A',
+      amount:    `₹${txn.amount.toLocaleString('en-IN')}`,
+      merchant:  txn.merchant_name || txn.merchant_vpa,
+      available: 'Check app',
+      utr:       utr || 'N/A',
     }).catch(() => {});
 
     return { success: true, txn_id: txn.txn_id, status: 'SETTLED', utr };
@@ -283,8 +298,13 @@ const mockPaymentSuccess = async (txnId, userId) => {
 
   const utr = `UPI${Date.now()}${Math.floor(Math.random() * 100000)}`;
 
-  // Now settle via webhook handler (PENDING → SETTLED is valid)
-  await handleSettlementWebhook({ lsp_txn_ref: txn.lsp_txn_ref, utr, status: 'SUCCESS', amount: txn.amount, timestamp: new Date() });
+  await handleSettlementWebhook({
+    lsp_txn_ref: txn.lsp_txn_ref,
+    utr,
+    status:    'SUCCESS',
+    amount:    txn.amount,
+    timestamp: new Date(),
+  });
 
   console.log('\n' + '═'.repeat(60));
   console.log(`✅ PAYMENT SETTLED`);

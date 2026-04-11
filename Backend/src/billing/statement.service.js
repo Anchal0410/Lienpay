@@ -5,10 +5,17 @@ const { logger, audit } = require('../../config/logger');
 
 // ─────────────────────────────────────────────────────────────
 // STATEMENT GENERATOR
-// Runs on 1st of every month (cron job)
-// Generates monthly statement for every active credit account
-// Calculates interest, MAD, total due
-// Sends SMS notification to user
+//
+// Runs on 1st of every month (cron job).
+// Generates monthly statement for every active credit account.
+//
+// CREDIT CARD BILLING MODEL:
+//   - Cycle runs e.g. Apr 1 – Apr 30
+//   - Statement generated on May 1 (cycleEnd + 1 day)
+//   - Due date = Jun 1 (dueDate, already stored on credit_accounts)
+//   - All transactions in April are interest-free until Jun 1
+//   - If Jun 1 passes with outstanding balance → interest accrues
+//   - interest.calculator.js handles this via the dueDate param
 // ─────────────────────────────────────────────────────────────
 
 const generateStatement = async (accountId) => {
@@ -29,7 +36,7 @@ const generateStatement = async (accountId) => {
   );
   if (existingRes.rows.length > 0) return existingRes.rows[0];
 
-  // Get settled transactions for this cycle
+  // Get all settled transactions for this billing cycle
   const txnsRes = await query(`
     SELECT txn_id, merchant_vpa, merchant_name, amount,
            settled_at, initiated_at, is_in_free_period, status
@@ -39,7 +46,7 @@ const generateStatement = async (accountId) => {
     ORDER BY initiated_at ASC
   `, [accountId, cycleStart, cycleEnd]);
 
-  // Get repayments this cycle
+  // Get total repaid this cycle
   const repaymentsRes = await query(`
     SELECT COALESCE(SUM(amount), 0) as total_repaid
     FROM repayments
@@ -50,8 +57,18 @@ const generateStatement = async (accountId) => {
   const totalRepaid  = parseFloat(repaymentsRes.rows[0]?.total_repaid || 0);
   const transactions = txnsRes.rows;
 
-  // Calculate interest
-  const interestCalc = calculateStatementInterest(transactions, account.apr, cycleStart, cycleEnd);
+  // ── CALCULATE INTEREST (credit card model) ─────────────────
+  // Pass dueDate so the calculator knows the free period ends there.
+  // If statement is generated before due_date → total_interest = 0
+  // (all transactions still in free period until due_date)
+  // If generated after due_date → interest = outstanding × APR/365 × days_past_due
+  const interestCalc = calculateStatementInterest(
+    transactions,
+    account.apr,
+    cycleStart,
+    cycleEnd,
+    dueDate,   // ← critical: tells calculator where free period ends
+  );
 
   // Check penal interest from previous overdue statement
   const prevStmtRes = await query(
@@ -60,18 +77,23 @@ const generateStatement = async (accountId) => {
   );
   let penalInterest = 0;
   if (prevStmtRes.rows.length > 0 && prevStmtRes.rows[0].status === 'OVERDUE') {
-    const penal = calculatePenalInterest(prevStmtRes.rows[0].total_due, prevStmtRes.rows[0].due_date);
+    const penal = calculatePenalInterest(
+      prevStmtRes.rows[0].total_due,
+      prevStmtRes.rows[0].due_date,
+      account.apr,
+    );
     penalInterest = penal.penal_interest;
   }
 
   // Totals
-  const openingBalance    = parseFloat(account.outstanding || 0);
-  const totalSpend        = interestCalc.total_principal;
-  const totalInterest     = interestCalc.total_interest + penalInterest;
-  const closingBalance    = openingBalance + totalSpend + totalInterest - totalRepaid;
-  const minimumAmountDue  = calculateMAD(closingBalance, totalInterest);
-  const stmtDate          = new Date(cycleEnd);
-  const stmtNumber        = `LP-${stmtDate.getFullYear()}-${String(stmtDate.getMonth() + 1).padStart(2, '0')}-${accountId.slice(0, 6).toUpperCase()}`;
+  const openingBalance   = parseFloat(account.outstanding || 0);
+  const totalSpend       = interestCalc.total_principal;
+  const totalInterest    = interestCalc.total_interest + penalInterest;
+  const closingBalance   = openingBalance + totalSpend + totalInterest - totalRepaid;
+  const minimumAmountDue = calculateMAD(closingBalance, totalInterest);
+
+  const stmtDate   = new Date(cycleEnd);
+  const stmtNumber = `LP-${stmtDate.getFullYear()}-${String(stmtDate.getMonth() + 1).padStart(2, '0')}-${accountId.slice(0, 6).toUpperCase()}`;
 
   // Store statement
   const stmtRes = await query(`
@@ -96,13 +118,13 @@ const generateStatement = async (accountId) => {
 
   const statementId = stmtRes.rows[0].statement_id;
 
-  // Roll billing cycle forward
-  const nextStart  = new Date(cycleEnd);
+  // Roll billing cycle forward to next month
+  const nextStart = new Date(cycleEnd);
   nextStart.setDate(nextStart.getDate() + 1);
-  const nextEnd    = new Date(nextStart.getFullYear(), nextStart.getMonth() + 1, 0);
-  const nextDue    = new Date(nextStart.getFullYear(), nextStart.getMonth() + 2, 1);
+  const nextEnd = new Date(nextStart.getFullYear(), nextStart.getMonth() + 1, 0);
+  const nextDue = new Date(nextStart.getFullYear(), nextStart.getMonth() + 2, 1);
 
-  // Carry closing balance as new outstanding into next cycle
+  // Carry closing balance as outstanding into next cycle
   const newOutstanding    = Math.max(parseFloat(closingBalance.toFixed(2)), 0);
   const newAvailableCredit = parseFloat(account.credit_limit) - newOutstanding;
 
@@ -125,7 +147,13 @@ const generateStatement = async (accountId) => {
     stmt_no: stmtNumber,
   }).catch(() => {});
 
-  audit('STATEMENT_GENERATED', account.user_id, { statement_id: statementId, closing_balance: closingBalance });
+  audit('STATEMENT_GENERATED', account.user_id, {
+    statement_id:    statementId,
+    closing_balance: closingBalance,
+    interest_charged: totalInterest,
+    cycle:           `${cycleStart} → ${cycleEnd}`,
+    due_date:        dueDate,
+  });
 
   return {
     statement_id:       statementId,
@@ -138,7 +166,6 @@ const generateStatement = async (accountId) => {
     total_interest:     parseFloat(totalInterest.toFixed(2)),
     closing_balance:    parseFloat(closingBalance.toFixed(2)),
     minimum_amount_due: minimumAmountDue,
-    total_due:          Math.max(parseFloat(closingBalance.toFixed(2)), 0),
     transaction_count:  transactions.length,
     interest_breakdown: interestCalc.breakdown,
   };
@@ -167,6 +194,7 @@ const runMonthlyCron = async () => {
   return results;
 };
 
+// ── GET SINGLE STATEMENT ──────────────────────────────────────
 const getStatement = async (userId, statementId) => {
   const result = await query(
     'SELECT * FROM statements WHERE statement_id = $1 AND user_id = $2',
@@ -176,13 +204,18 @@ const getStatement = async (userId, statementId) => {
   return result.rows[0];
 };
 
+// ── GET ALL STATEMENTS FOR USER ───────────────────────────────
 const getStatements = async (userId) => {
   const result = await query(`
     SELECT statement_id, billing_period_start, billing_period_end,
-           due_date, total_drawdowns as total_spend, interest_charged as total_interest,
-           total_due, minimum_due as minimum_amount_due, status, generated_at
-    FROM statements WHERE user_id = $1
-    ORDER BY billing_period_end DESC LIMIT 12
+           due_date, total_drawdowns as total_spend,
+           interest_charged as total_interest,
+           total_due, minimum_due as minimum_amount_due,
+           status, generated_at
+    FROM statements
+    WHERE user_id = $1
+    ORDER BY billing_period_end DESC
+    LIMIT 12
   `, [userId]);
   return result.rows;
 };
