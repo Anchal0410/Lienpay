@@ -167,11 +167,13 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
 }
 
 // ── Post-30-day plan card ─────────────────────────────────────
-function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, daysLeft }) {
+function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, daysLeft, cycleStart, cycleEnd }) {
   const [plan, setPlan] = useState('standard')
   const stdApr     = apr || 12
-  const monthlyInt = outstanding * (18 / 12 / 100)
-  const fmtDate2   = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
+  const monthlyInt = Math.round(outstanding * (18 / 12 / 100))
+  // dueDate is a Date object from parent (effectiveDueDate)
+  const fmtDate2     = (d) => { if (!d) return '—'; const dt = d instanceof Date ? d : new Date(d); return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) }
+  const fmtShortDate = (d) => { if (!d) return '—'; const dt = d instanceof Date ? d : new Date(d); return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) }
 
   // isPastDue = due_date has passed (credit card model — free for entire cycle until due_date)
   const headerColor = isPastDue ? '#F59E0B' : 'var(--jade)'
@@ -182,17 +184,21 @@ function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, days
     <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
       style={{ background: headerBg, border: `1px solid ${headerBdr}`, borderRadius: 18, padding: '16px', marginBottom: 16 }}>
 
-      {/* Billing cycle info bar */}
-      {dueDate && (
-        <div style={{ background: 'var(--bg-elevated)', borderRadius: 10, padding: '8px 12px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-            DUE DATE
-          </p>
-          <p style={{ fontSize: 11, fontWeight: 700, color: isPastDue ? '#F59E0B' : 'var(--jade)', fontFamily: 'var(--font-mono)' }}>
-            {fmtDate2(dueDate)} {!isPastDue && daysLeft !== null ? `· ${daysLeft}d left` : ''}
+      {/* Billing cycle dates block */}
+      <div style={{ background: 'var(--bg-elevated)', borderRadius: 12, padding: '10px 14px', marginBottom: 12 }}>
+        {(cycleStart || cycleEnd) && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+            <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>BILLING CYCLE</p>
+            <p style={{ fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtShortDate(cycleStart)} – {fmtShortDate(cycleEnd)}</p>
+          </div>
+        )}
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{isPastDue ? 'DUE DATE' : 'PAY BY'}</p>
+          <p style={{ fontSize: 12, fontWeight: 700, color: isPastDue ? '#F59E0B' : 'var(--jade)', fontFamily: 'var(--font-mono)' }}>
+            {fmtDate2(dueDate)} {!isPastDue ? `· ${daysLeft}d left` : '· Overdue'}
           </p>
         </div>
-      )}
+      </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={headerColor} strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
@@ -208,7 +214,7 @@ function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, days
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {[
           { id: 'standard', label: 'Pay Outstanding', badge: 'Recommended', sublabel: `${stdApr}% APR`, desc: 'Pay full amount. Clears balance entirely.', amount: outstanding, color: 'var(--jade)' },
-          { id: 'interest-only', label: 'Pay Interest Only', badge: 'Revolving', sublabel: '18% APR', desc: `Pay ${fmt(monthlyInt)} this month. Balance rolls forward.`, amount: monthlyInt, color: '#F59E0B' },
+          { id: 'interest-only', label: 'Pay Interest Only', badge: 'Revolving', sublabel: '18% APR', desc: `Pay ₹${monthlyInt.toLocaleString('en-IN')} interest only. Your ₹${Math.round(outstanding).toLocaleString('en-IN')} balance rolls to next month.`, amount: monthlyInt, color: '#F59E0B' },
         ].map(p => (
           <div key={p.id} onClick={() => setPlan(p.id)}
             style={{ background: plan === p.id ? `${p.color}10` : 'var(--bg-elevated)', border: `1.5px solid ${plan === p.id ? p.color : 'var(--border)'}`, borderRadius: 14, padding: '13px 14px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}>
@@ -227,6 +233,26 @@ function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, days
           </div>
         ))}
       </div>
+      {plan === 'interest-only' && (
+        <div style={{ background: 'rgba(201,164,73,0.06)', border: '1px solid rgba(201,164,73,0.15)', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
+          <p style={{ fontSize: 10, color: '#C9A449', fontFamily: 'var(--font-mono)', fontWeight: 700, letterSpacing: '1.5px', marginBottom: 8 }}>HOW REVOLVING WORKS</p>
+          {[
+            `You owe ₹${Math.round(outstanding).toLocaleString('en-IN')} from this billing cycle`,
+            `Pay ₹${monthlyInt.toLocaleString('en-IN')} now — this covers the monthly interest charge at 18% APR`,
+            `Your ₹${Math.round(outstanding).toLocaleString('en-IN')} principal carries forward to the next month`,
+            `Next month: same choice — pay it off or keep revolving`,
+            `Your credit line stays active and you can still spend`,
+          ].map((text, i) => (
+            <div key={i} style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginBottom: i < 4 ? 6 : 0 }}>
+              <div style={{ width: 16, height: 16, borderRadius: '50%', background: 'rgba(201,164,73,0.15)', border: '1px solid rgba(201,164,73,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+                <p style={{ fontSize: 8, fontWeight: 800, color: '#C9A449', fontFamily: 'var(--font-mono)' }}>{i + 1}</p>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       <motion.button whileTap={{ scale: 0.97 }} onClick={() => onRepay(plan === 'standard' ? outstanding : monthlyInt, plan === 'interest-only')}
         style={{ width: '100%', height: 50, borderRadius: 14, background: plan === 'standard' ? 'linear-gradient(135deg, var(--jade), #00A878)' : 'linear-gradient(135deg, #F59E0B, #D97706)', color: '#000', fontSize: 14, fontWeight: 800, fontFamily: 'var(--font-sans)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.8"><path d="M20 6L9 17L4 12"/></svg>
@@ -296,16 +322,23 @@ export default function Billing() {
   const safeStatements = Array.isArray(statements) ? statements : []
 
   // ── CREDIT CARD BILLING MODEL ────────────────────────────────
-  // Free period = entire billing cycle until due_date
-  // isPastDue = due_date has passed AND there's still outstanding balance
-  const today         = new Date()
+  const today      = new Date()
   today.setHours(0, 0, 0, 0)
-  const dueDateObj    = dueDate ? new Date(dueDate) : null
-  const isPastDue     = dueDateObj && dueDateObj < today && outstanding > 0
-  const daysLeft      = dueDateObj ? Math.max(0, Math.ceil((dueDateObj - today) / 86400000)) : null
-  const cycleStart    = creditAccount?.current_cycle_start
-  const cycleEnd      = creditAccount?.current_cycle_end
-  const fmtCycleDate  = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
+  const cycleStart = creditAccount?.current_cycle_start
+  const cycleEnd   = creditAccount?.current_cycle_end
+
+  // due_date may be null for accounts activated before billing was wired up
+  // Fallback: cycleEnd + 30 days. If cycleEnd null → today + 30 days
+  const rawDueDate       = dueDate || creditAccount?.due_date
+  const effectiveDueDate = rawDueDate
+    ? new Date(rawDueDate)
+    : cycleEnd
+      ? new Date(new Date(cycleEnd).getTime() + 30 * 86400000)
+      : new Date(today.getTime() + 30 * 86400000)
+
+  const isPastDue    = effectiveDueDate < today && outstanding > 0
+  const daysLeft     = Math.max(0, Math.ceil((effectiveDueDate - today) / 86400000))
+  const fmtCycleDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 
   return (
     <div className="screen">
@@ -341,7 +374,7 @@ export default function Billing() {
                 ? 'No outstanding balance — all clear'
                 : isPastDue
                   ? `Due date passed · Interest accruing on ${fmt(outstanding)}`
-                  : `${fmt(outstanding)} outstanding · Pay by ${fmtDate(dueDate)} · ${daysLeft}d interest-free`}
+                  : `${fmt(outstanding)} outstanding · Pay by ${fmtCycleDate(effectiveDueDate)} · ${daysLeft}d interest-free`}
             </p>
           </div>
         </motion.div>
@@ -353,8 +386,10 @@ export default function Billing() {
             apr={apr}
             onRepay={initiateRepay}
             isPastDue={isPastDue}
-            dueDate={dueDate}
+            dueDate={effectiveDueDate}
             daysLeft={daysLeft}
+            cycleStart={cycleStart}
+            cycleEnd={cycleEnd}
           />
         )}
 

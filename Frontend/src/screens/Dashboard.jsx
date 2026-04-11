@@ -25,8 +25,21 @@ const getGreeting = () => {
 function NotificationSheet({ creditAccount, ltvHealth, open, onClose }) {
   const outstanding  = parseFloat(creditAccount?.outstanding || 0)
   const ltvRatio     = parseFloat(ltvHealth?.ltv_ratio || 0)
-  const dueDate      = creditAccount?.due_date
-  const daysUntilDue = dueDate ? Math.max(0, Math.ceil((new Date(dueDate) - Date.now()) / 86400000)) : null
+  const cycleEnd     = creditAccount?.current_cycle_end
+  const cycleStart   = creditAccount?.current_cycle_start
+
+  // Handle null due_date — same fallback as Billing.jsx
+  const rawDueDate   = creditAccount?.due_date
+  const today0       = new Date(); today0.setHours(0,0,0,0)
+  const dueDateObj   = rawDueDate
+    ? new Date(rawDueDate)
+    : cycleEnd
+      ? new Date(new Date(cycleEnd).getTime() + 30 * 86400000)
+      : new Date(today0.getTime() + 30 * 86400000)
+  const dueDate      = dueDateObj
+  const daysUntilDue = Math.max(0, Math.ceil((dueDateObj - Date.now()) / 86400000))
+  const isPastDue    = dueDateObj < today0 && outstanding > 0
+  const fmtD         = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
 
   const notifications = []
 
@@ -48,13 +61,21 @@ function NotificationSheet({ creditAccount, ltvHealth, open, onClose }) {
     })
   }
 
-  if (outstanding > 0 && daysUntilDue !== null && daysUntilDue <= 7) {
+  if (outstanding > 0 && isPastDue) {
     notifications.push({
-      id: 'due-soon', type: daysUntilDue <= 2 ? 'critical' : 'warning',
-      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 2 ? '#EF4444' : '#F59E0B'} strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
-      title: `Payment Due in ${daysUntilDue} day${daysUntilDue !== 1 ? 's' : ''}`,
-      body: `${fmtL(outstanding)} outstanding. Pay in full before due date to maintain interest-free status.`,
-      color: daysUntilDue <= 2 ? '#EF4444' : '#F59E0B', time: `${daysUntilDue}d left`,
+      id: 'past-due', type: 'critical',
+      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>,
+      title: 'Due Date Passed — Interest Accruing',
+      body: `${fmtL(outstanding)} outstanding from ${cycleStart ? fmtD(cycleStart) : 'this'} – ${cycleEnd ? fmtD(cycleEnd) : ''} cycle. Go to Billing to repay or choose revolving.`,
+      color: '#EF4444', time: 'Overdue',
+    })
+  } else if (outstanding > 0 && daysUntilDue <= 10) {
+    notifications.push({
+      id: 'due-soon', type: daysUntilDue <= 3 ? 'critical' : 'warning',
+      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 3 ? '#EF4444' : '#F59E0B'} strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+      title: `Pay by ${fmtD(dueDate)} — ${daysUntilDue}d left`,
+      body: `${fmtL(outstanding)} outstanding · Billing cycle ${cycleStart ? fmtD(cycleStart) : ''}${cycleEnd ? ' – ' + fmtD(cycleEnd) : ''}. Pay in full by ${fmtD(dueDate)} to avoid interest.`,
+      color: daysUntilDue <= 3 ? '#EF4444' : '#F59E0B', time: `${daysUntilDue}d left`,
     })
   }
 
@@ -331,7 +352,7 @@ function RiskSimulator({ creditAccount, ltvHealth, onClose }) {
 // cost savings, interest math, LTV analysis, smart nudges.
 // Tappable → navigates to the relevant screen.
 // ─────────────────────────────────────────────────────────────
-function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, transactions, onNavigate }) {
+function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, transactions, onNavigate, daysUntilDue, isPastDueInsight }) {
   // Pick the most contextually relevant insight each session
   // Priority order: urgent first, then informational
   const getInsight = () => {
@@ -341,6 +362,41 @@ function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, tran
     const sessionSeed = Math.floor(Date.now() / 86400000) % 5  // changes daily
 
     const insights = [
+      // 0. URGENT: due date is within 10 days — show this first
+      outstanding > 0 && daysUntilDue !== null && daysUntilDue <= 10 ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={daysUntilDue <= 3 ? '#EF4444' : '#F59E0B'} strokeWidth="1.8">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="12 6 12 12 16 14"/>
+          </svg>
+        ),
+        accent: daysUntilDue <= 3 ? '#EF4444' : '#F59E0B',
+        label: daysUntilDue <= 3 ? 'ACTION REQUIRED' : 'DUE SOON',
+        headline: daysUntilDue === 0
+          ? `Due today — pay ${fmtL(outstanding)} now`
+          : `${daysUntilDue}d left to pay interest-free`,
+        subtext: `Pay ${fmtL(outstanding)} by your due date to avoid any interest charges. After that, interest accrues at your APR rate.`,
+        cta: 'Go to Billing →',
+        tab: 'billing',
+      } : null,
+
+      // 0b. Past due — most urgent
+      outstanding > 0 && daysUntilDue === 0 && isPastDueInsight ? {
+        icon: (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="1.8">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+        ),
+        accent: '#EF4444',
+        label: 'OVERDUE',
+        headline: `Interest accruing on ${fmtL(outstanding)}`,
+        subtext: 'Your due date has passed. Go to Billing and choose to pay in full or revolve at 18% APR.',
+        cta: 'Repay now →',
+        tab: 'billing',
+      } : null,
+
       // 1. Show interest savings if actively using credit
       outstanding > 0 && savings > 0 ? {
         icon: (
@@ -672,6 +728,20 @@ export default function Dashboard({ onPay }) {
           ltvRatio={ltvRatio}
           transactions={transactions}
           onNavigate={setActiveTab}
+          daysUntilDue={(() => {
+            const rawDue = account?.due_date
+            const cEnd   = account?.current_cycle_end
+            const t0     = new Date(); t0.setHours(0,0,0,0)
+            const dObj   = rawDue ? new Date(rawDue) : cEnd ? new Date(new Date(cEnd).getTime() + 30*86400000) : null
+            return dObj ? Math.max(0, Math.ceil((dObj - t0) / 86400000)) : null
+          })()}
+          isPastDueInsight={(() => {
+            const rawDue = account?.due_date
+            const cEnd   = account?.current_cycle_end
+            const t0     = new Date(); t0.setHours(0,0,0,0)
+            const dObj   = rawDue ? new Date(rawDue) : cEnd ? new Date(new Date(cEnd).getTime() + 30*86400000) : null
+            return dObj ? dObj < t0 && outstanding > 0 : false
+          })()}
         />
       </div>
 
