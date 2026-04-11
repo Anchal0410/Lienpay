@@ -1,7 +1,6 @@
 const express  = require('express');
 const router   = express.Router();
-const { body } = require('express-validator');
-const { validationResult } = require('express-validator');
+const { body, validationResult } = require('express-validator');
 const pledgeService = require('./pledge.service');
 const { success, error, validationError, serverError } = require('../utils/response');
 const { authenticate, requireKYC } = require('../middleware/auth.middleware');
@@ -15,7 +14,10 @@ const validateSelection = async (req, res) => {
   if (!errors.isEmpty()) return validationError(res, errors.array());
   try {
     const { selected_folios } = req.body;
-    const result = await pledgeService.validatePledgeSelection(req.user.user_id, selected_folios);
+    const folioIds = selected_folios.map(f => f.folio_number || f);
+    // Supports both new pledge.service (validateFolios) and old (validatePledgeSelection)
+    const fn = pledgeService.validateFolios || pledgeService.validatePledgeSelection;
+    const result = await fn(req.user.user_id, folioIds);
     return success(res, result, 'Pledge selection validated');
   } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
@@ -30,9 +32,11 @@ const initiatePledge = async (req, res) => {
   if (!errors.isEmpty()) return validationError(res, errors.array());
   try {
     const { selected_folios } = req.body;
-    const { validatedFolios } = await pledgeService.validatePledgeSelection(req.user.user_id, selected_folios);
-    const result = await pledgeService.initiatePledges(req.user.user_id, validatedFolios);
-    return success(res, { pledges: result }, 'Pledge initiated. Check your registered mobile for OTP from CAMS/KFintech.');
+    const result = await pledgeService.initiatePledges(req.user.user_id, selected_folios);
+    // Support both return shapes: { pledges: [] } or []
+    const pledges = Array.isArray(result) ? result : (result.pledges || result);
+    return success(res, { pledges, notorious_warning: result.notorious_warning || null },
+      'Pledge initiated. OTP sent via MF Central to your registered mobile.');
   } catch (err) {
     if (err.statusCode) return error(res, err.message, err.statusCode);
     logger.error('initiatePledge error:', err);
@@ -87,7 +91,8 @@ router.use(requireKYC);
 /**
  * POST /api/pledge/validate
  * Validate fund selection before pledging.
- * Body: { selected_folios: [{ folio_number, units_to_pledge? }] }
+ * Also runs notorious fund check.
+ * Body: { selected_folios: [{ folio_number }] }
  */
 router.post('/validate',
   [body('selected_folios').isArray({ min: 1 }).withMessage('Select at least one fund')],
@@ -96,9 +101,9 @@ router.post('/validate',
 
 /**
  * POST /api/pledge/initiate
- * Initiate pledge with CAMS/KFintech. Sends OTP to unit holder.
- * Mock OTPs: CAMS=123456, KFintech=654321
- * Body: { selected_folios: [{ folio_number, units_to_pledge? }] }
+ * Initiate pledge with MF Central. Sends OTP to unit holder.
+ * Mock OTP: 123456 (MF Central unified OTP in dev)
+ * Body: { selected_folios: [{ folio_number, ltv_override? }] }
  */
 router.post('/initiate',
   [body('selected_folios').isArray({ min: 1 }).withMessage('Select at least one fund')],
@@ -107,7 +112,7 @@ router.post('/initiate',
 
 /**
  * POST /api/pledge/confirm-otp
- * Confirm pledge with OTP received from RTA.
+ * Confirm pledge with OTP received from MF Central.
  * Body: { pledge_id, otp }
  */
 router.post('/confirm-otp',
@@ -120,14 +125,15 @@ router.post('/confirm-otp',
 
 /**
  * POST /api/pledge/notify-nbfc
- * Notify NBFC of all confirmed pledges (call after all OTPs confirmed).
+ * Notify NBFC of all confirmed pledges.
+ * Call after ALL OTPs are confirmed.
  * Body: { pledge_ids: [uuid, uuid] }
  */
 router.post('/notify-nbfc', notifyNBFC);
 
 /**
  * GET /api/pledge/status
- * Get all pledges for current user.
+ * Get all pledges for current user with current NAV + notorious flag.
  */
 router.get('/status', getStatus);
 
