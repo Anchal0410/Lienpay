@@ -189,11 +189,6 @@ const storePledgeRecord = async ({ userId, holding, unitsToPledge, nav, value,
       pledge_ref_number, otp_source, status,
       is_notorious_at_pledge, created_at
     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12,$13,$14,NOW())
-    ON CONFLICT (user_id, folio_number) WHERE status IN ('OTP_PENDING','ACTIVE')
-    DO UPDATE SET
-      pledge_ref_number = EXCLUDED.pledge_ref_number,
-      status = 'OTP_PENDING',
-      updated_at = NOW()
     RETURNING pledge_id
   `, [
     userId, holding.folio_number, holding.isin, holding.scheme_name,
