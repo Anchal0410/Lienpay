@@ -202,7 +202,7 @@ function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, days
       </div>
       <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
         {isPastDue
-          ? 'Your due date has passed. Choose how you'd like to handle the outstanding balance:'
+          ? 'Your due date has passed. Choose how you would like to handle the outstanding balance:'
           : 'Pay in full by the due date to avoid all interest. Or choose revolving to keep the credit line alive by paying just the monthly interest.'}
       </p>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
