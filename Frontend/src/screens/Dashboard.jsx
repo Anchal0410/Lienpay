@@ -250,24 +250,56 @@ function CreditSummaryCard({ account, ltvHealth }) {
             </div>
           ))}
         </div>
-        {creditLimit > 0 && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-              <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>UTILISATION</p>
-              <p style={{ fontSize: 9, color: utilPct > 80 ? '#EF4444' : utilPct > 50 ? '#F59E0B' : 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{utilPct.toFixed(1)}%</p>
+        {/* ── BILLING CYCLE DATES — replaces utilisation bar (ring already shows that) ── */}
+        {(() => {
+          const cycleStart = account?.current_cycle_start
+          const cycleEnd   = account?.current_cycle_end
+          const rawDue     = account?.due_date
+          const today0     = new Date(); today0.setHours(0,0,0,0)
+          const dueObj     = rawDue ? new Date(rawDue) : cycleEnd ? new Date(new Date(cycleEnd).getTime() + 30*86400000) : null
+          const daysLeft   = dueObj ? Math.max(0, Math.ceil((dueObj - today0) / 86400000)) : null
+          const pastDue    = dueObj && dueObj < today0 && outstanding > 0
+          const fmtD       = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
+          const accentCol  = pastDue ? '#EF4444' : daysLeft !== null && daysLeft <= 5 ? '#F59E0B' : 'var(--jade)'
+
+          return (
+            <div style={{ marginTop: 14, borderTop: '1px solid rgba(0,212,161,0.08)', paddingTop: 12 }}>
+              {/* Cycle row */}
+              {(cycleStart || cycleEnd) && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                  <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>BILLING CYCLE</p>
+                  <p style={{ fontSize: 9, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                    {fmtD(cycleStart)} – {fmtD(cycleEnd)}
+                  </p>
+                </div>
+              )}
+              {/* Due date row */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: outstanding > 0 ? 7 : 0 }}>
+                <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  {pastDue ? 'OVERDUE' : 'PAY BY'}
+                </p>
+                <p style={{ fontSize: 9, color: accentCol, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                  {fmtD(dueObj)} {pastDue ? '· Interest accruing' : daysLeft !== null ? `· ${daysLeft}d interest-free` : ''}
+                </p>
+              </div>
+              {/* Interest-free or overdue badge */}
+              {outstanding > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', background: `${accentCol}10`, borderRadius: 6, border: `1px solid ${accentCol}25`, width: 'fit-content', marginTop: 4 }}>
+                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: accentCol }} />
+                  <p style={{ fontSize: 8, color: accentCol, fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    {pastDue ? 'FREE PERIOD ENDED' : daysLeft !== null && daysLeft <= 5 ? `ONLY ${daysLeft} DAYS LEFT` : 'INTEREST-FREE ACTIVE'}
+                  </p>
+                </div>
+              )}
+              {outstanding === 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 8px', background: 'rgba(0,212,161,0.06)', borderRadius: 6, border: '1px solid rgba(0,212,161,0.12)', width: 'fit-content', marginTop: 4 }}>
+                  <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--jade)' }} />
+                  <p style={{ fontSize: 8, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>30 DAYS INTEREST-FREE · ACTIVE</p>
+                </div>
+              )}
             </div>
-            <div style={{ height: 4, borderRadius: 2, background: 'rgba(0,212,161,0.1)', overflow: 'hidden' }}>
-              <motion.div initial={{ width: 0 }} animate={{ width: `${Math.min(utilPct, 100)}%` }} transition={{ duration: 1, ease: 'easeOut', delay: 0.4 }}
-                style={{ height: '100%', background: utilPct > 80 ? '#EF4444' : utilPct > 50 ? '#F59E0B' : 'linear-gradient(90deg, var(--jade), #00A878)', borderRadius: 2 }} />
-            </div>
-          </div>
-        )}
-        {outstanding === 0 && (
-          <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'rgba(0,212,161,0.06)', borderRadius: 8, border: '1px solid rgba(0,212,161,0.12)', width: 'fit-content' }}>
-            <div style={{ width: 4, height: 4, borderRadius: '50%', background: 'var(--jade)' }} />
-            <p style={{ fontSize: 9, color: 'var(--jade)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>30 DAYS INTEREST-FREE · ACTIVE</p>
-          </div>
-        )}
+          )
+        })()}
       </div>
     </motion.div>
   )

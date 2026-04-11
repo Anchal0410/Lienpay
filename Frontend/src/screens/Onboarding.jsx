@@ -491,6 +491,26 @@ export default function Onboarding({ onComplete }) {
                   </div>
                 ))}
               </div>
+              {/* ── HOW YOUR BILLING CYCLE WORKS ── */}
+              <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '16px 18px', marginBottom: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--jade)" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: 'var(--jade)', fontFamily: 'var(--font-mono)', letterSpacing: '1.5px' }}>HOW YOUR BILLING WORKS</p>
+                </div>
+                {[
+                  { label: 'Billing cycle', value: 'Monthly (e.g. Apr 1 – Apr 30)' },
+                  { label: 'Free period', value: 'All spends in a cycle are interest-free until the due date' },
+                  { label: 'Due date', value: 'Around the 1st of the month after next — ~30–60 days of zero interest' },
+                  { label: 'Pay in full', value: 'Zero interest on everything. Most users do this.' },
+                  { label: 'Can't pay in full?', value: 'Pay just the monthly interest (1.5%) to keep the credit line active. Your balance rolls to next month at 18% APR.' },
+                ].map((row, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 12, marginBottom: i < 4 ? 8 : 0, alignItems: 'flex-start' }}>
+                    <p style={{ fontSize: 10, color: 'var(--text-muted)', minWidth: 90, flexShrink: 0, paddingTop: 1 }}>{row.label}</p>
+                    <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5, flex: 1 }}>{row.value}</p>
+                  </div>
+                ))}
+              </div>
+
               <CTA onClick={handleActivateCredit} loading={loading} label="Activate Credit Line →" />
             </motion.div>
           )}
