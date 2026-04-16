@@ -167,8 +167,8 @@ function UPIRepayModal({ amount, apr, isInterestOnly, onConfirmed, onClose }) {
 }
 
 // ── Post-30-day plan card ─────────────────────────────────────
-function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, daysLeft, cycleStart, cycleEnd }) {
-  const [plan, setPlan] = useState('standard')
+function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, daysLeft, cycleStart, cycleEnd, revolvingBlocked, revolvingCount }) {
+  const [plan, setPlan] = useState(revolvingBlocked ? 'standard' : 'standard')
   const stdApr     = apr || 12
   const monthlyInt = Math.round(outstanding * (18 / 12 / 100))
   // dueDate is a Date object from parent (effectiveDueDate)
@@ -211,11 +211,32 @@ function RepaymentPlanCard({ outstanding, apr, onRepay, isPastDue, dueDate, days
           ? 'Your due date has passed. Choose how you would like to handle the outstanding balance:'
           : 'Pay in full by the due date to avoid all interest. Or choose revolving to keep the credit line alive by paying just the monthly interest.'}
       </p>
+      {/* Revolving cycle status */}
+      {revolvingCount === 1 && !revolvingBlocked && (
+        <div style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, padding: '8px 12px', marginBottom: 10, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" strokeWidth="2.5" style={{ marginTop: 1, flexShrink: 0 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <p style={{ fontSize: 10, color: '#F59E0B', lineHeight: 1.5 }}>
+            <strong>1 of 2 revolving cycles used.</strong> You have 1 more month before you must pay in full. After 2 cycles, RBI classifies the loan as overdue — your pledged funds would be used to settle.
+          </p>
+        </div>
+      )}
+      {revolvingBlocked && (
+        <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 10, padding: '10px 12px', marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <p style={{ fontSize: 10, fontWeight: 700, color: '#EF4444', fontFamily: 'var(--font-mono)' }}>REVOLVING LIMIT REACHED — 90-DAY RULE</p>
+          </div>
+          <p style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+            You have used revolving credit for 2 consecutive cycles. To stay compliant with RBI guidelines, you must pay your full balance now. Continuing to carry a balance beyond 90 days triggers NPA classification and your pledged funds will be used to settle.
+          </p>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
         {[
           { id: 'standard', label: 'Pay Outstanding', badge: 'Recommended', sublabel: `${stdApr}% APR`, desc: 'Pay full amount. Clears balance entirely.', amount: outstanding, color: 'var(--jade)' },
           { id: 'interest-only', label: 'Pay Interest Only', badge: 'Revolving', sublabel: '18% APR', desc: `Pay ₹${monthlyInt.toLocaleString('en-IN')} interest only. Your ₹${Math.round(outstanding).toLocaleString('en-IN')} balance rolls to next month.`, amount: monthlyInt, color: '#F59E0B' },
-        ].map(p => (
+        ].filter(Boolean).map(p => (
           <div key={p.id} onClick={() => setPlan(p.id)}
             style={{ background: plan === p.id ? `${p.color}10` : 'var(--bg-elevated)', border: `1.5px solid ${plan === p.id ? p.color : 'var(--border)'}`, borderRadius: 14, padding: '13px 14px', cursor: 'pointer', transition: 'all 0.2s', position: 'relative' }}>
             <div style={{ position: 'absolute', top: 13, right: 13, width: 18, height: 18, borderRadius: '50%', background: plan === p.id ? p.color : 'transparent', border: `2px solid ${plan === p.id ? p.color : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -276,6 +297,12 @@ export default function Billing() {
   const { statements, setStatements, creditAccount, setCreditAccount } = useStore()
   const [repayments, setRepayments]       = useState([])
   const [loading, setLoading]             = useState(true)
+  // Track consecutive revolving cycles — stored in localStorage for persistence
+  // RBI NPA rule: 90 days overdue = NPA. Max 2 consecutive interest-only cycles (~60 days)
+  // before we force full payment to stay within the 90-day window.
+  const [revolvingCount, setRevolvingCount] = useState(() => {
+    try { return parseInt(localStorage.getItem('lp_revolving_count') || '0') } catch { return 0 }
+  })
   const [selected, setSelected]           = useState(null)
   const [customAmt, setCustomAmt]         = useState('')
   const [nachSetup, setNachSetup]         = useState(false)
@@ -284,6 +311,21 @@ export default function Billing() {
   const [upiModal, setUpiModal]           = useState(null) // { amount, isInterestOnly }
 
   const outstanding  = parseFloat(creditAccount?.outstanding || 0)
+
+  // ── REVOLVING LIMIT HELPERS ──────────────────────────────────
+  const MAX_REVOLVING_CYCLES = 2  // RBI 90-day NPA window = max 2 billing cycles
+  const revolvingBlocked     = revolvingCount >= MAX_REVOLVING_CYCLES && outstanding > 0
+
+  const markRevolvingUsed = () => {
+    const next = revolvingCount + 1
+    setRevolvingCount(next)
+    try { localStorage.setItem('lp_revolving_count', String(next)) } catch {}
+  }
+
+  const resetRevolvingCount = () => {
+    setRevolvingCount(0)
+    try { localStorage.removeItem('lp_revolving_count') } catch {}
+  }
   const available    = parseFloat(creditAccount?.available_credit || 0)
   const dueDate      = creditAccount?.due_date
   const apr          = parseFloat(creditAccount?.apr || 12)
@@ -301,6 +343,12 @@ export default function Billing() {
 
   // Open UPI modal instead of directly calling mockRepay
   const initiateRepay = (amount, isInterestOnly = false) => {
+    // Track consecutive revolving usage for 90-day NPA compliance
+    if (isInterestOnly) {
+      markRevolvingUsed()
+    } else {
+      resetRevolvingCount()  // full payment resets the counter
+    }
     if (!amount || amount <= 0) return toast.error('Enter a valid amount')
     if (amount > outstanding) return toast.error(`Cannot repay more than ${fmt(outstanding)}`)
     setUpiModal({ amount, isInterestOnly })
@@ -390,6 +438,8 @@ export default function Billing() {
             daysLeft={daysLeft}
             cycleStart={cycleStart}
             cycleEnd={cycleEnd}
+            revolvingBlocked={revolvingBlocked}
+            revolvingCount={revolvingCount}
           />
         )}
 

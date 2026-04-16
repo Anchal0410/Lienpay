@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { getCreditStatus, getLTVHealth, getTxnHistory } from '../api/client'
+import { getCreditStatus, getLTVHealth, getTxnHistory, getPledgeStatus } from '../api/client'
 import useStore from '../store/useStore'
 import { CreditRing, LiquidBlob, ScrollReveal, useScrollY } from '../components/LiquidUI'
 
@@ -206,9 +206,10 @@ function NotificationBell({ creditAccount, ltvHealth, onOpen, hasUnread, bellCol
 // ─────────────────────────────────────────────────────────────
 // CREDIT SUMMARY CARD
 // ─────────────────────────────────────────────────────────────
-function CreditSummaryCard({ account, ltvHealth }) {
+function CreditSummaryCard({ account, ltvHealth, pledgeVal }) {
   if (!account) return null
-  const pledgeValue = parseFloat(ltvHealth?.current_pledge_value || 0)
+  // pledgeVal from direct pledge fetch is accurate; ltvHealth.current_pledge_value can be 0 in dev
+  const pledgeValue = pledgeVal > 0 ? pledgeVal : parseFloat(ltvHealth?.current_pledge_value || 0)
   const creditLimit = parseFloat(account.credit_limit  || 0)
   const available   = parseFloat(account.available_credit || 0)
   const outstanding = parseFloat(account.outstanding || 0)
@@ -256,7 +257,14 @@ function CreditSummaryCard({ account, ltvHealth }) {
           const cycleEnd   = account?.current_cycle_end
           const rawDue     = account?.due_date
           const today0     = new Date(); today0.setHours(0,0,0,0)
-          const dueObj     = rawDue ? new Date(rawDue) : cycleEnd ? new Date(new Date(cycleEnd).getTime() + 30*86400000) : null
+          const activatedAt = account?.activated_at
+          const dueObj     = rawDue
+            ? new Date(rawDue)
+            : cycleEnd
+              ? new Date(new Date(cycleEnd).getTime() + 15*86400000)
+              : activatedAt
+                ? new Date(new Date(activatedAt).getTime() + 44*86400000)
+                : new Date(today0.getTime() + 30*86400000)
           const daysLeft   = dueObj ? Math.max(0, Math.ceil((dueObj - today0) / 86400000)) : null
           const pastDue    = dueObj && dueObj < today0 && outstanding > 0
           const fmtD       = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : '—'
@@ -576,6 +584,7 @@ function WealthInsightCard({ outstanding, available, creditLimit, ltvRatio, tran
 export default function Dashboard({ onPay }) {
   const { creditAccount, setCreditAccount, ltvHealth, setLTVHealth, setTransactions, transactions, activeTab, setActiveTab } = useStore()
   const [loading, setLoading]             = useState(!creditAccount)
+  const [pledgeVal, setPledgeVal]          = useState(0)
   const [showAllTxns, setShowAllTxns]     = useState(false)
   const [showSimulator, setShowSimulator] = useState(false)
   const [notifOpen, setNotifOpen]         = useState(false)
@@ -587,6 +596,13 @@ export default function Dashboard({ onPay }) {
       try { const r = await getCreditStatus(); setCreditAccount(r.data) } catch(e) {}
       try { const r = await getLTVHealth();    setLTVHealth(r.data) }    catch(e) {}
       try { const r = await getTxnHistory({ limit: 10 }); setTransactions(r.data?.transactions || []) } catch(e) {}
+      // Direct pledge fetch — ltvHealth.current_pledge_value returns 0 in dev mode
+      try {
+        const r    = await getPledgeStatus()
+        const active = (r.data?.pledges || []).filter(p => p.status === 'ACTIVE')
+        const total  = active.reduce((s, p) => s + parseFloat(p.value_at_pledge || 0), 0)
+        if (total > 0) setPledgeVal(total)
+      } catch(e) {}
       setLoading(false)
     }
     load()
@@ -717,7 +733,7 @@ export default function Dashboard({ onPay }) {
         </motion.div>
 
         {/* Credit Summary Card */}
-        <CreditSummaryCard account={account} ltvHealth={ltv} />
+        <CreditSummaryCard account={account} ltvHealth={ltv} pledgeVal={pledgeVal} />
 
         {/* Transactions */}
         {transactions.length > 0 && (
