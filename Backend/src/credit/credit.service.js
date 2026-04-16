@@ -1,48 +1,27 @@
 const axios  = require('axios');
-const { query }  = require('../../config/database');
+const { query }       = require('../../config/database');
 const { generateKFS } = require('./kfs.generator');
+const { sendSMS }     = require('../utils/sms.service');
 const { logger, audit } = require('../../config/logger');
 
 // ─────────────────────────────────────────────────────────────
 // CREDIT LINE SERVICE
-//
-// BUG FIX: Pledge Amount Mismatch
-//   Problem: KFS showed ₹22.17L but dashboard showed ₹19.66L
-//   Root cause: Two different calculations were used:
-//     1. `requestSanction` used pledgedLimit from DB
-//     2. `activateCreditLine` recalculated from risk_decisions
-//   The numbers diverged because risk_decisions uses eligible_value
-//   from mf_holdings (which includes drawdown) while the pledge
-//   table stores eligible_value_at_pledge (which may differ).
-//
-//   FIX: Store the sanctioned_limit explicitly in credit_accounts
-//   when KFS is accepted. activateCreditLine uses THAT value only.
-//   Single source of truth = the number the user saw and accepted.
-//
-// APR PRODUCTS (two options — user chooses at onboarding):
-//   STANDARD (12% APR):
-//     - 30 days interest-free from each transaction
-//     - Pay back within 30 days = 0% interest
-//     - After 30 days: 12% p.a. on outstanding amount
-//     - Designed for users who will repay regularly
-//
-//   INTEREST_ONLY (18% APR):
-//     - No interest-free period
-//     - Pay interest monthly, principal whenever you want
-//     - Designed for users who want revolving credit with no repayment pressure
-//     - Higher APR compensates NBFC for longer holding period
+// Uses CLOU (Credit Line on UPI) — NPCI's official framework
+// for pre-sanctioned credit lines on UPI rails.
+// PSP bank must be CLOU-empanelled with NPCI.
 // ─────────────────────────────────────────────────────────────
 
-// ── CALCULATE LIMIT FROM PLEDGED FUNDS (single source of truth) ──
+// ── HELPER: Calculate limit from ACTUALLY PLEDGED funds ──────
+// Credit limit must reflect only pledged funds, not all eligible
 const calculatePledgedLimit = async (userId) => {
-  const result = await query(`
+  const pledgedRes = await query(`
     SELECT COALESCE(SUM(eligible_value_at_pledge), 0) as total
     FROM pledges WHERE user_id = $1 AND status = 'ACTIVE'
   `, [userId]);
-  return Math.round(parseFloat(result.rows[0]?.total || 0));
+  return Math.round(parseFloat(pledgedRes.rows[0]?.total || 0));
 };
 
-// ── STEP 1: REQUEST SANCTION ──────────────────────────────────
+// ── STEP 1: Request NBFC Sanction ────────────────────────────
 const requestSanction = async (userId) => {
   const riskRes = await query(`
     SELECT * FROM risk_decisions
@@ -51,47 +30,47 @@ const requestSanction = async (userId) => {
   `, [userId]);
 
   if (!riskRes.rows.length) {
-    throw { statusCode: 400, message: 'No approved risk decision. Please complete portfolio assessment.' };
+    throw { statusCode: 400, message: 'No approved risk decision found. Please complete portfolio assessment.' };
   }
 
   const risk = riskRes.rows[0];
-  const userRes = await query(`SELECT full_name, pan_last4, ckyc_id, date_of_birth FROM users WHERE user_id = $1`, [userId]);
+
+  const userRes = await query(`
+    SELECT u.full_name, u.pan_last4, u.ckyc_id, u.date_of_birth,
+           k.aadhaar_txn_ref, k.kyc_method
+    FROM users u
+    LEFT JOIN kyc_records k ON k.user_id = u.user_id
+    WHERE u.user_id = $1
+  `, [userId]);
+
   const user = userRes.rows[0];
 
   const collateralRes = await query(`
-    SELECT COUNT(*) as pledge_count, COALESCE(SUM(eligible_value_at_pledge),0) as total_collateral
+    SELECT COUNT(*) as pledge_count,
+           SUM(eligible_value_at_pledge) as total_collateral
     FROM pledges WHERE user_id = $1 AND status = 'ACTIVE'
   `, [userId]);
+
   const collateral = collateralRes.rows[0];
 
-  // Use pledgedLimit as the definitive limit — this is what user actually pledged
   const pledgedLimit = await calculatePledgedLimit(userId);
-
-  if (pledgedLimit === 0) {
-    throw { statusCode: 400, message: 'No active pledges found. Please pledge funds first.' };
-  }
-
-  const actualLimit = pledgedLimit;
-
-  // Get APR product choice (set during onboarding)
-  const aprProductRes = await query(
-    `SELECT apr_product_choice FROM users WHERE user_id = $1`,
-    [userId]
-  ).catch(() => ({ rows: [{}] }));
-
-  const aprProduct = aprProductRes.rows[0]?.apr_product_choice || 'STANDARD';
-  const apr = aprProduct === 'INTEREST_ONLY' ? 18.00 : 12.00;
+  const actualLimit  = pledgedLimit > 0
+    ? Math.min(risk.approved_limit, pledgedLimit)
+    : risk.approved_limit;
 
   const sanctionPayload = {
-    customer_id:      userId,
-    full_name:        user.full_name,
-    risk_decision_id: risk.decision_id,
-    approved_limit:   actualLimit,
-    risk_tier:        risk.risk_tier,
-    apr,
-    apr_product:      aprProduct,
-    collateral_value: Math.round(parseFloat(collateral.total_collateral)),
-    credit_line_type: 'CLOU',
+    customer_id:        userId,
+    ckyc_id:            user.ckyc_id,
+    full_name:          user.full_name,
+    kyc_type:           user.kyc_method || 'AADHAAR_OTP',
+    risk_decision_id:   risk.decision_id,
+    approved_limit:     actualLimit,
+    risk_tier:          risk.risk_tier,
+    apr:                risk.apr,
+    collateral_pledges: parseInt(collateral.pledge_count),
+    collateral_value:   Math.round(parseFloat(collateral.total_collateral)),
+    bureau_score_band:  risk.bureau_score_band,
+    credit_line_type:   'CLOU',
   };
 
   const mode = process.env.NBFC_MODE || 'mock';
@@ -105,109 +84,80 @@ const requestSanction = async (userId) => {
     );
     sanctionResult = {
       sanction_id:      r.data.sanction_id,
-      sanctioned_limit: r.data.sanctioned_limit || actualLimit,
-      apr:              r.data.apr || apr,
-      apr_product:      aprProduct,
+      sanctioned_limit: r.data.sanctioned_limit,
+      apr:              r.data.apr,
+      nbfc_account_id:  r.data.account_id,
     };
   } else {
     sanctionResult = {
       sanction_id:      `NBFC_SANCTION_${Date.now()}`,
       sanctioned_limit: actualLimit,
-      apr,
-      apr_product:      aprProduct,
+      apr:              risk.apr,
+      nbfc_account_id:  `NBFC_ACC_${userId.slice(0, 8).toUpperCase()}`,
     };
-    logger.info('🏦 [NBFC MOCK] Sanction approved', sanctionResult);
+    logger.info('🏦 [NBFC MOCK] CLOU Sanction approved', sanctionResult);
   }
-
-  // Store sanction so activateCreditLine can use the EXACT same limit
-  await query(`
-    INSERT INTO sanctions (user_id, sanction_id, sanctioned_limit, apr, apr_product, created_at)
-    VALUES ($1, $2, $3, $4, $5, NOW())
-    ON CONFLICT (sanction_id) DO NOTHING
-  `, [userId, sanctionResult.sanction_id, sanctionResult.sanctioned_limit, apr, aprProduct])
-  .catch(async () => {
-    // If sanctions table doesn't exist, store in users table temporarily
-    await query(`UPDATE users SET last_sanction_limit=$2, last_sanction_id=$3 WHERE user_id=$1`,
-      [userId, sanctionResult.sanctioned_limit, sanctionResult.sanction_id]).catch(()=>{});
-  });
 
   audit('CREDIT_SANCTIONED', userId, {
     sanction_id: sanctionResult.sanction_id,
     limit:       sanctionResult.sanctioned_limit,
-    apr,
-    apr_product: aprProduct,
+    apr:         sanctionResult.apr,
+    type:        'CLOU',
   });
 
-  return sanctionResult;
+  return { ...sanctionResult, risk_tier: risk.risk_tier };
 };
 
-// ── STEP 2: GENERATE KFS ──────────────────────────────────────
+// ── STEP 2: Generate KFS ──────────────────────────────────────
 const getKFS = async (userId, sanctionData) => {
   const kfsBuffer  = await generateKFS(userId, sanctionData);
   const kfsVersion = process.env.KFS_VERSION || 'v1.0';
-  return { kfs_base64: kfsBuffer.toString('base64'), kfs_version: kfsVersion };
+  const kfsBase64  = kfsBuffer.toString('base64');
+  return { kfs_base64: kfsBase64, kfs_version: kfsVersion };
 };
 
-// ── STEP 3: ACCEPT KFS ───────────────────────────────────────
+// ── STEP 3: Accept KFS ────────────────────────────────────────
 const acceptKFS = async (userId, sanctionId, kfsVersion) => {
   const { logConsent, CONSENT_TYPES } = require('../kyc/consent.service');
-  await logConsent({ userId, consentType: CONSENT_TYPES.KFS_ACCEPTANCE, kfsVersion,
-    metadata: { sanction_id: sanctionId } });
+
+  await logConsent({
+    userId,
+    consentType: CONSENT_TYPES.KFS_ACCEPTANCE,
+    kfsVersion,
+    metadata:    { sanction_id: sanctionId },
+  });
 
   const coolingOffExpires = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-  // FIX: Retrieve the sanctioned_limit from the sanctions table
-  // This ensures activateCreditLine uses the SAME value the user saw in KFS
-  const sanctionRes = await query(
-    `SELECT sanctioned_limit, apr, apr_product FROM sanctions WHERE sanction_id=$1 LIMIT 1`,
-    [sanctionId]
-  ).catch(() => ({ rows: [] }));
-
-  // Fallback: calculate from pledges if sanctions table not available
-  const sanctionedLimit = sanctionRes.rows[0]?.sanctioned_limit
-    || await calculatePledgedLimit(userId);
-  const apr        = sanctionRes.rows[0]?.apr || 12.00;
-  const aprProduct = sanctionRes.rows[0]?.apr_product || 'STANDARD';
-
   const accountRes = await query(`
-    INSERT INTO credit_accounts
-      (user_id, nbfc_sanction_id, credit_limit, available_credit, outstanding,
-       apr, apr_product, kfs_version, kfs_accepted_at,
-       cooling_off_expires_at, status, sanctioned_at, free_period_days)
-    VALUES ($1,$2,$3,$3,0,$4,$5,$6,NOW(),$7,'COOLING_OFF',NOW(),$8)
+    INSERT INTO credit_accounts (
+      user_id, nbfc_sanction_id,
+      credit_limit, available_credit, outstanding,
+      apr, kfs_version, kfs_accepted_at,
+      cooling_off_expires_at, status, sanctioned_at
+    ) VALUES ($1,$2,0,0,0,$3,$4,NOW(),$5,'COOLING_OFF',NOW())
     ON CONFLICT (user_id) DO UPDATE SET
       nbfc_sanction_id       = EXCLUDED.nbfc_sanction_id,
-      credit_limit           = EXCLUDED.credit_limit,
-      available_credit       = EXCLUDED.credit_limit,
       apr                    = EXCLUDED.apr,
-      apr_product            = EXCLUDED.apr_product,
       kfs_version            = EXCLUDED.kfs_version,
       kfs_accepted_at        = NOW(),
       cooling_off_expires_at = EXCLUDED.cooling_off_expires_at,
       status                 = 'COOLING_OFF',
-      free_period_days       = EXCLUDED.free_period_days,
       updated_at             = NOW()
-    RETURNING account_id, credit_limit
-  `, [
-    userId, sanctionId, sanctionedLimit,
-    apr, aprProduct, kfsVersion, coolingOffExpires,
-    aprProduct === 'INTEREST_ONLY' ? 0 : 30,
-  ]);
-
-  logger.info(`✅ KFS accepted — credit limit locked at ₹${sanctionedLimit.toLocaleString('en-IN')}`);
+    RETURNING account_id
+  `, [userId, sanctionId, 0, kfsVersion, coolingOffExpires]);
 
   return {
     account_id:          accountRes.rows[0].account_id,
-    credit_limit_locked: accountRes.rows[0].credit_limit,
     cooling_off_expires: coolingOffExpires.toISOString(),
-    message:             'KFS accepted. 3-day cooling-off started.',
+    message:             'KFS accepted. 3-day cooling-off period started.',
   };
 };
 
-// ── STEP 4: ACTIVATE CREDIT LINE ──────────────────────────────
+// ── STEP 4: Activate Credit Line + CLOU VPA ──────────────────
 const activateCreditLine = async (userId) => {
   const accountRes = await query(
-    `SELECT * FROM credit_accounts WHERE user_id=$1 AND status='COOLING_OFF'`,
+    "SELECT * FROM credit_accounts WHERE user_id = $1 AND status = 'COOLING_OFF'",
     [userId]
   );
 
@@ -216,86 +166,185 @@ const activateCreditLine = async (userId) => {
   }
   const account = accountRes.rows[0];
 
-  // FIX: Use the credit_limit that was already locked in during KFS acceptance
-  // This is the SAME value shown on the KFS — no recalculation
-  const activationLimit = parseFloat(account.credit_limit);
+  const riskRes = await query(`
+    SELECT approved_limit, apr FROM risk_decisions
+    WHERE user_id = $1 AND decision = 'APPROVED'
+    ORDER BY decided_at DESC LIMIT 1
+  `, [userId]);
 
-  if (!activationLimit || activationLimit <= 0) {
-    throw { statusCode: 400, message: 'Invalid credit limit. Please restart the credit activation process.' };
+  const { approved_limit, apr } = riskRes.rows[0];
+
+  const pledgedLimit = await calculatePledgedLimit(userId);
+  const actualLimit  = pledgedLimit > 0
+    ? Math.min(approved_limit, pledgedLimit)
+    : approved_limit;
+
+  // Notify NBFC to activate
+  const mode = process.env.NBFC_MODE || 'mock';
+  let nbfcAccountId;
+
+  if (mode === 'real') {
+    const r = await axios.post(
+      `${process.env.NBFC_API_URL}/credit/activate`,
+      {
+        sanction_id:      account.nbfc_sanction_id,
+        customer_id:      userId,
+        credit_line_type: 'CLOU',
+      },
+      { headers: { Authorization: `Bearer ${process.env.NBFC_API_KEY}` }, timeout: 15000 }
+    );
+    nbfcAccountId = r.data.account_id;
+  } else {
+    nbfcAccountId = `NBFC_ACC_${userId.slice(0, 8).toUpperCase()}`;
+    logger.info('🏦 [NBFC MOCK] CLOU credit line activated', { account_id: nbfcAccountId });
   }
 
-  const vpa = `lp${Date.now().toString().slice(-8)}@lienpay`;
+  // Create CLOU VPA via PSP bank
+  const vpa = await createCLOUVPA(userId, account.account_id, nbfcAccountId);
+
+  // ── BILLING CYCLE ─────────────────────────────────────────
+  // Cycle starts on activation day, runs exactly 30 days.
+  // Due date = cycle end + 15-day grace period (standard credit card model).
+  // Total interest-free window = 45 days from activation.
+  const today      = new Date();
+  const cycleStart = today;
+  const cycleEnd   = new Date(today.getTime() + 29 * 86400000);   // day 30
+  const dueDate    = new Date(today.getTime() + 44 * 86400000);   // day 45 (30 + 15 grace)
 
   await query(`
     UPDATE credit_accounts SET
-      credit_limit     = $2,
-      available_credit = $2,
-      outstanding      = 0,
-      status           = 'ACTIVE',
-      upi_vpa          = $3,
-      upi_active       = true,
-      psp_bank         = 'LienPay PSP',
-      activated_at     = NOW(),
-      updated_at       = NOW()
+      status              = 'ACTIVE',
+      nbfc_account_id     = $2,
+      credit_limit        = $3,
+      available_credit    = $3,
+      apr                 = $4,
+      upi_vpa             = $5,
+      upi_active          = true,
+      psp_bank            = $6,
+      billing_cycle_day   = 1,
+      current_cycle_start = $7,
+      current_cycle_end   = $8,
+      due_date            = $9,
+      activated_at        = NOW(),
+      updated_at          = NOW()
     WHERE user_id = $1
-  `, [userId, activationLimit, vpa]);
+  `, [
+    userId, nbfcAccountId, actualLimit, apr, vpa,
+    process.env.PSP_BANK_NAME || 'YesBank',
+    cycleStart, cycleEnd, dueDate,
+  ]);
 
   await query(`
     UPDATE users SET
-      onboarding_step = 'ACTIVE',
       account_status  = 'CREDIT_ACTIVE',
+      onboarding_step = 'COMPLETE',
       updated_at      = NOW()
     WHERE user_id = $1
   `, [userId]);
 
-  audit('CREDIT_ACTIVATED', userId, {
-    limit:       activationLimit,
-    apr:         account.apr,
-    apr_product: account.apr_product,
+  await sendSMS(userId, 'CREDIT_ACTIVATED', {
+    limit: `₹${actualLimit.toLocaleString('en-IN')}`,
     vpa,
-  });
+  }).catch(() => {});
 
-  logger.info(`💳 Credit line activated for user ${userId}: ₹${activationLimit.toLocaleString('en-IN')} @ ${account.apr}% (${account.apr_product})`);
+  audit('CLOU_ACTIVATED', userId, { approved_limit: actualLimit, pledgedLimit, vpa, apr });
 
   return {
-    message:         'Credit line is live!',
-    credit_limit:    activationLimit,
-    available_credit: activationLimit,
-    upi_vpa:         vpa,
-    apr:             account.apr,
-    apr_product:     account.apr_product,
-    free_period_days: account.free_period_days || 30,
+    account_id:       account.account_id,
+    credit_limit:     actualLimit,
+    available_credit: actualLimit,
+    apr,
+    upi_vpa:          vpa,
+    clou_enabled:     true,
+    psp_bank:         process.env.PSP_BANK_NAME || 'YesBank',
+    billing_cycle:    { start: cycleStart, end: cycleEnd, due: dueDate },
+    message:          `Your LienPay CLOU credit line of ₹${actualLimit.toLocaleString('en-IN')} is now active!`,
   };
 };
 
-// ── GET STATUS ────────────────────────────────────────────────
-const getCreditStatus = async (userId) => {
-  const result = await query(`
-    SELECT ca.*, u.full_name, u.mobile
-    FROM credit_accounts ca
-    JOIN users u ON u.user_id = ca.user_id
-    WHERE ca.user_id = $1
-    LIMIT 1
-  `, [userId]);
-  return result.rows[0] || null;
-};
+// ── CREATE CLOU VPA ───────────────────────────────────────────
+const createCLOUVPA = async (userId, accountId, nbfcAccountId) => {
+  const userRes = await query('SELECT mobile FROM users WHERE user_id = $1', [userId]);
+  const mobile  = userRes.rows[0]?.mobile;
 
-// ── CANCEL DURING COOLING OFF ────────────────────────────────
-const cancelDuringCoolingOff = async (userId) => {
-  const accountRes = await query(
-    `SELECT * FROM credit_accounts WHERE user_id=$1 AND status='COOLING_OFF'`,
-    [userId]
-  );
-  if (!accountRes.rows.length) {
-    throw { statusCode: 400, message: 'No account in cooling-off period found.' };
+  const mode = process.env.UPI_MODE || 'mock';
+
+  if (mode === 'real') {
+    const r = await axios.post(
+      `${process.env.PSP_API_URL}/clou/vpa/create`,
+      {
+        mobile,
+        account_id:      accountId,
+        nbfc_account_id: nbfcAccountId,
+        credit_limit:    null,
+        type:            'CREDIT_LINE',
+        nbfc_id:         process.env.NBFC_CLIENT_ID,
+      },
+      { headers: { Authorization: `Bearer ${process.env.PSP_API_KEY}` }, timeout: 15000 }
+    );
+    return r.data.vpa;
   }
 
-  await query(`UPDATE credit_accounts SET status='CANCELLED', updated_at=NOW() WHERE user_id=$1`, [userId]);
-  await query(`UPDATE users SET onboarding_step='PLEDGE_CONFIRMED', account_status='PLEDGE_DONE', updated_at=NOW() WHERE user_id=$1`, [userId]);
+  const pspHandle = process.env.PSP_HANDLE || 'yesbank';
+  const vpa = `${mobile}@${pspHandle}`;
+  logger.info('💳 [CLOU MOCK] VPA created', { vpa, type: 'CREDIT_LINE' });
+  return vpa;
+};
 
-  audit('CREDIT_CANCELLED_COOLING_OFF', userId, {});
+// ── CANCEL DURING COOLING-OFF ─────────────────────────────────
+const cancelDuringCoolingOff = async (userId) => {
+  const accountRes = await query(
+    "SELECT * FROM credit_accounts WHERE user_id = $1 AND status = 'COOLING_OFF'",
+    [userId]
+  );
 
-  return { message: 'Credit line cancelled during cooling-off period. No charges applied.' };
+  if (!accountRes.rows.length) {
+    throw { statusCode: 400, message: 'No credit account in cooling-off period found.' };
+  }
+
+  const account = accountRes.rows[0];
+  if (new Date() > new Date(account.cooling_off_expires_at)) {
+    throw { statusCode: 400, message: 'Cooling-off period has expired. Please contact support.' };
+  }
+
+  await query(`
+    UPDATE credit_accounts SET
+      status = 'CLOSED', cooling_off_cancelled = true, closed_at = NOW()
+    WHERE user_id = $1
+  `, [userId]);
+
+  const { releasePledges } = require('../pledge/pledge.service');
+  await releasePledges(userId);
+
+  audit('CLOU_CANCELLED_COOLING_OFF', userId, { account_id: account.account_id });
+  return { message: 'Credit line cancelled. All pledges released. No charges applied.' };
+};
+
+// ── GET CREDIT STATUS ─────────────────────────────────────────
+const getCreditStatus = async (userId) => {
+  const result = await query(`
+    SELECT account_id, credit_limit, available_credit, outstanding,
+           apr, upi_vpa, upi_active, psp_bank, status,
+           current_cycle_start, current_cycle_end, due_date,
+           cooling_off_expires_at, activated_at
+    FROM credit_accounts WHERE user_id = $1
+  `, [userId]);
+
+  const account = result.rows[0];
+
+  // ── BILLING DATE FALLBACK ─────────────────────────────────
+  // For accounts activated before billing cycle was wired up,
+  // due_date may be null. Compute from activated_at so the
+  // frontend always receives real dates — never null.
+  if (account && !account.due_date && account.activated_at) {
+    const a       = new Date(account.activated_at);
+    const toStr   = (d) => d.toISOString().split('T')[0];
+    account.current_cycle_start = account.current_cycle_start || toStr(a);
+    account.current_cycle_end   = account.current_cycle_end   || toStr(new Date(a.getTime() + 29 * 86400000));
+    account.due_date            = toStr(new Date(a.getTime() + 44 * 86400000));
+  }
+
+  return account || null;
 };
 
 module.exports = {
@@ -303,6 +352,6 @@ module.exports = {
   getKFS,
   acceptKFS,
   activateCreditLine,
-  getCreditStatus,
   cancelDuringCoolingOff,
+  getCreditStatus,
 };
