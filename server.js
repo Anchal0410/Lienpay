@@ -24,6 +24,15 @@ app.use(cors({
       'https://lien-pay.vercel.app',
       'https://lienpay-admin.vercel.app',
       'https://lienpay-lender.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+      'http://localhost:3002',
+      'http://localhost:3003',
+      'http://localhost:3004',
+      'http://localhost:3005',
+      'http://localhost:3006',
+      'http://localhost:3007',
+      'http://localhost:3008',
     ].filter(Boolean);
     if (!origin || allowed.some(a => origin.startsWith(a.replace(/\/$/, ''))) || origin.includes('lienpay') || origin.includes('vercel.app') || origin.includes('localhost')) {
       callback(null, true);

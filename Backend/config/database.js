@@ -1,15 +1,31 @@
 const { Pool } = require('pg');
 
-// Railway provides DATABASE_URL as a single connection string
+function getDatabaseUrlForPg(rawUrl) {
+  if (!rawUrl) return undefined;
+  try {
+    const u = new URL(rawUrl);
+    // libpq-style params sometimes appear in managed Postgres URLs (e.g. Neon).
+    // Node-postgres doesn't need them and some can cause parse issues.
+    u.searchParams.delete('sslmode');
+    u.searchParams.delete('channel_binding');
+    return u.toString();
+  } catch {
+    // If it's not a valid WHATWG URL, let pg try to handle it as-is.
+    return rawUrl;
+  }
+}
+
+// Railway/Neon provide DATABASE_URL as a single connection string
 // Local dev uses individual DB_HOST, DB_PORT etc from .env
 const pool = new Pool(
   process.env.DATABASE_URL
     ? {
-        connectionString: process.env.DATABASE_URL,
+        connectionString: getDatabaseUrlForPg(process.env.DATABASE_URL),
         ssl: { rejectUnauthorized: false },
         max: 20,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
+        // Managed/remote Postgres can take longer to establish TLS.
+        connectionTimeoutMillis: 10000,
       }
     : {
         host:     process.env.DB_HOST     || 'localhost',

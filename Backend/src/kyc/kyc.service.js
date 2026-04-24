@@ -44,6 +44,25 @@ const { logger, audit } = require('../../config/logger');
 // Verifies PAN format + AML (sanctions/PEP screening)
 // Sends data package to NBFC after this step
 const submitProfile = async ({ userId, pan, fullName, dob, email, ipHash, deviceId }) => {
+  const normalizeName = (name) =>
+    String(name || '')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .toUpperCase();
+
+  // Enforce stable identity: (mobile, full_name) should remain consistent for a user.
+  // If full_name is already set for this user, do not allow changing it.
+  const currentUser = await query(
+    'SELECT full_name FROM users WHERE user_id = $1',
+    [userId]
+  );
+  const existingName = currentUser.rows[0]?.full_name;
+  if (existingName && normalizeName(existingName) !== normalizeName(fullName)) {
+    throw {
+      statusCode: 409,
+      message: 'Full name is already set for this account and cannot be changed.',
+    };
+  }
 
   // 1. Duplicate PAN check
   const existing = await query(
@@ -87,20 +106,29 @@ const submitProfile = async ({ userId, pan, fullName, dob, email, ipHash, device
   ]).catch(() => {});
 
   // 5. Store user profile (name, PAN encrypted, DOB)
-  const panEncrypted = encrypt(pan);
-  await query(`
-    UPDATE users SET
-      full_name       = $2,
-      pan_last4       = $3,
-      pan_encrypted   = $4,
-      pan_verified    = true,
-      pan_status      = $5,
-      date_of_birth   = $6,
-      email           = $7,
-      onboarding_step = 'KYC_AADHAAR',
-      updated_at      = NOW()
-    WHERE user_id = $1
-  `, [userId, fullName, pan.slice(-4), panEncrypted, panResult.status, dob, email || null]);
+  try {
+    const panEncrypted = encrypt(pan);
+    await query(`
+      UPDATE users SET
+        full_name       = $2,
+        pan_last4       = $3,
+        pan_encrypted   = $4,
+        pan_verified    = true,
+        pan_status      = $5,
+        date_of_birth   = $6,
+        email           = $7,
+        onboarding_step = 'KYC_AADHAAR',
+        updated_at      = NOW()
+      WHERE user_id = $1
+    `, [userId, fullName, pan.slice(-4), panEncrypted, panResult.status, dob, email || null]);
+  } catch (err) {
+    // Common local issue: DB schema not migrated / missing columns.
+    logger.error('KYC submitProfile DB update failed:', err);
+    throw {
+      statusCode: 500,
+      message: `KYC profile save failed: ${err.message}`,
+    };
+  }
 
   // 6. Package the data for NBFC handover
   // In production: this data is sent to NBFC for them to do Aadhaar/CKYC

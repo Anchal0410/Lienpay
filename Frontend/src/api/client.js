@@ -1,4 +1,6 @@
-const BASE_URL = 'https://lienpay-production.up.railway.app'
+// In dev, prefer same-origin `/api` calls (Vite proxy will forward to backend).
+// In production, set `VITE_API_BASE_URL` at build time if needed.
+const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 const getToken = () => localStorage.getItem('lp_token')
 

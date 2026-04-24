@@ -11,7 +11,22 @@ const ALGORITHM = 'aes-256-cbc';
 // Get key and IV from env, or generate deterministic ones for dev
 const getKey = () => {
   const key = process.env.ENCRYPTION_KEY;
-  if (key) return Buffer.from(key, 'hex');
+  if (key) {
+    // Expect 32 bytes (64 hex chars). If invalid in dev, fall back to a derived key
+    // so local testing doesn't crash due to misconfigured env.
+    try {
+      const buf = Buffer.from(key, 'hex');
+      if (buf.length === 32) return buf;
+    } catch (_) {}
+
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('ENCRYPTION_KEY must be a 64-char hex string in production');
+    }
+
+    // Dev fallback: derive a stable 32-byte key from whatever was provided.
+    return crypto.scryptSync(String(key), 'lienpay_dev_salt', 32);
+  }
+
   // Dev fallback — NEVER use in production
   if (process.env.NODE_ENV === 'production') {
     throw new Error('ENCRYPTION_KEY must be set in production');

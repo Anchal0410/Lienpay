@@ -13,7 +13,7 @@ const { logger }         = require('./config/logger');
 
 const app  = express();
 app.set('trust proxy', 1);
-const PORT = process.env.PORT || 3000;
+const BASE_PORT = parseInt(process.env.PORT, 10) || 3000;
 
 // ── CORS ─────────────────────────────────────────────────────
 // Allows:
@@ -25,10 +25,18 @@ app.use(cors({
     // No origin = Postman / server-to-server / curl — always allow
     if (!origin) return callback(null, true);
 
+    // In local/dev, allow all origins to avoid CORS blocking API testing.
+    // Keep production strict.
+    if (process.env.NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
     const allowed =
       origin.endsWith('.vercel.app') ||           // any Vercel deployment
       origin.includes('localhost') ||              // local dev
       origin.includes('127.0.0.1') ||             // local dev
+      origin.includes('[::1]') ||                 // IPv6 localhost (browser)
+      origin.includes('::1') ||                   // IPv6 localhost (some stacks)
       origin === (process.env.FRONTEND_URL || ''); // explicit env override
 
     if (allowed) {
@@ -41,7 +49,7 @@ app.use(cors({
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
-    'Content-Type', 'Authorization',
+    'Content-Type', 'Authorization', 'Accept', 'X-Requested-With',
     'x-device-id', 'x-device-os', 'x-app-version',
     'x-admin-token', 'x-lender-token', 'x-internal-key',
   ],
@@ -71,6 +79,10 @@ app.use(helmet());
 
 // ── HEALTH CHECK ──────────────────────────────────────────────
 app.get('/health', (req, res) => {
+  res.json({ status: 'ok', service: 'lienpay-backend', version: '1.0.0' });
+});
+// Convenience alias (some clients expect /api/health)
+app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', service: 'lienpay-backend', version: '1.0.0' });
 });
 
@@ -106,12 +118,33 @@ app.use((err, req, res, next) => {
 const start = async () => {
   try {
     await testConnection();
-    await connectRedis();
+    // Redis should not block local backend testing unless explicitly enabled.
+    const redisEnabled =
+      (process.env.REDIS_ENABLED || '').toLowerCase() === 'true' ||
+      !!process.env.REDIS_URL;
+
+    if (redisEnabled) {
+      await connectRedis();
+    } else {
+      logger.warn('Redis disabled (set REDIS_ENABLED=true or REDIS_URL to enable).');
+    }
     const { startCronJobs } = require('./src/monitoring/cron.scheduler');
     startCronJobs();
-    app.listen(PORT, () => {
-      logger.info(`🚀 LienPay backend running on port ${PORT}`);
-    });
+    const listenWithRetry = (port, attemptsLeft) => {
+      const server = app.listen(port, () => {
+        logger.info(`🚀 LienPay backend running on port ${port}`);
+      });
+      server.on('error', (err) => {
+        if (err && err.code === 'EADDRINUSE' && attemptsLeft > 0) {
+          logger.warn(`Port ${port} in use, trying ${port + 1}...`);
+          setTimeout(() => listenWithRetry(port + 1, attemptsLeft - 1), 250);
+          return;
+        }
+        throw err;
+      });
+    };
+
+    listenWithRetry(BASE_PORT, 10);
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

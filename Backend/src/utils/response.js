@@ -41,8 +41,8 @@ const forbidden = (res, message = 'Access denied.') => {
   return error(res, message, 403);
 };
 
-const serverError = (res, message = 'Internal server error') => {
-  return error(res, message, 500);
+const serverError = (res, message = 'Internal server error', details = null) => {
+  return error(res, message, 500, details);
 };
 
 const validationError = (res, errors) => {
