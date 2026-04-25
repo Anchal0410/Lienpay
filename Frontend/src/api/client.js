@@ -46,7 +46,8 @@ export { get, post }
 
 // ── AUTH ───────────────────────────────────────────────────────
 export const sendOTP   = (mobile)      => post('/api/auth/send-otp',    { mobile })
-export const verifyOTP = (mobile, otp) => post('/api/auth/verify-otp',  { mobile, otp })
+export const verifyOTP = (mobile, otp, full_name) =>
+  post('/api/auth/verify-otp', { mobile, otp, ...(full_name ? { full_name } : {}) })
 export const logout    = ()            => post('/api/auth/logout',       {})
 export const getMe     = ()            => get('/api/auth/me')
 
