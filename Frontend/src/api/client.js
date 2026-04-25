@@ -1,10 +1,11 @@
 // In dev, prefer same-origin `/api` calls (Vite proxy will forward to backend).
 // In production, prefer an explicit backend base URL.
 const DEFAULT_PROD_API = 'https://lienpay-5t73.onrender.com'
-const BASE_URL = (
-  import.meta?.env?.VITE_API_BASE_URL ||
-  (import.meta?.env?.PROD ? DEFAULT_PROD_API : '')
-).replace(/\/$/, '')
+const BASE_URL='https://lienpay-5t73.onrender.com'
+// const BASE_URL = (
+//   import.meta?.env?.VITE_API_BASE_URL ||
+//   (import.meta?.env?.PROD ? DEFAULT_PROD_API : '')
+// ).replace(/\/$/, '')
 
 const getToken = () => localStorage.getItem('lp_token')
 
