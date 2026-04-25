@@ -147,9 +147,15 @@ function MarketTicker({ portfolioValue }) {
 const ONBOARDED_STEPS = new Set(['ACTIVE', 'COMPLETE', 'CREDIT_ACTIVE', 'CREDIT_LINE_ACTIVE'])
 
 function AppContent() {
-  const { token, onboardingStep, activeTab, setActiveTab, portfolio, ltvHealth } = useStore()
+  const { token, onboardingStep, activeTab, setActiveTab, portfolio, ltvHealth, clearAuth } = useStore()
   const [showSplash, setShowSplash] = useState(true)
   const [showPay, setShowPay]       = useState(false)
+
+  // Always start from mobile-number auth on a hard reload.
+  // This matches the desired behavior for local testing/demo environments.
+  useEffect(() => {
+    if (import.meta.env.DEV) clearAuth()
+  }, [clearAuth])
 
   const isAuthenticated = !!token
   const isOnboarded     = ONBOARDED_STEPS.has(onboardingStep)

@@ -237,6 +237,11 @@ export default function Onboarding({ onComplete }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'var(--bg-void)', overflow: 'hidden' }}>
+      <style>{`
+        @media (max-width: 420px) {
+          .lp-fund-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
       <LiquidBlob size={240} color="var(--jade)" top="-50px" left="-40px" />
       <LiquidBlob size={170} color="var(--jade)" bottom="80px" right="-30px" delay={2} />
 
@@ -342,19 +347,53 @@ export default function Onboarding({ onComplete }) {
           {/* ── PORTFOLIO 1: Fund Selection ── */}
           {currentStep === 'PORTFOLIO' && subStep === 1 && (
             <motion.div key="port1" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}>
-              <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}
-                style={{ background: 'linear-gradient(135deg, var(--jade-dim), var(--jade-glow))', border: '1px solid var(--jade-border)', borderRadius: 20, padding: '20px', textAlign: 'center', marginBottom: 16 }}>
-                <p style={{ fontSize: 10, color: 'var(--jade)', letterSpacing: '2.5px', marginBottom: 6, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>YOUR CREDIT LIMIT</p>
-                <p style={{ fontFamily: 'var(--font-display)', fontSize: 42, color: 'var(--jade)', lineHeight: 1, marginBottom: 4 }}>
-                  {fmtL(selectedCredit > 0 ? selectedCredit : riskData?.approved_limit || 0)}
-                </p>
-                <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{riskData?.apr || 12}% APR · {riskData?.risk_tier === 'A' ? 'Prime' : riskData?.risk_tier === 'B' ? 'Standard' : 'Starter'} plan</p>
-              </motion.div>
+              {(() => {
+                const computedLimit = selectedCredit > 0 ? selectedCredit : (riskData?.approved_limit || 0)
+                const baseApproved = riskData?.approved_limit || 0
+                const meterMax = Math.max(computedLimit, baseApproved, 1)
+                const meterPct = Math.max(0, Math.min(100, Math.round((computedLimit / meterMax) * 100)))
+                const tierLabel = riskData?.risk_tier === 'A' ? 'Prime' : riskData?.risk_tier === 'B' ? 'Standard' : 'Starter'
+                return (
+                  <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}
+                    style={{ background: 'linear-gradient(135deg, var(--jade-dim), var(--jade-glow))', border: '1px solid var(--jade-border)', borderRadius: 20, padding: '18px 18px 16px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+                      <div>
+                        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2.5px', marginBottom: 6, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>CREDIT LIMIT</p>
+                        <p style={{ fontFamily: 'var(--font-display)', fontSize: 44, color: 'var(--jade)', lineHeight: 1, marginBottom: 6 }}>
+                          {fmtL(computedLimit)}
+                        </p>
+                        <p style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{riskData?.apr || 12}% APR · {tierLabel} plan</p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>SELECTED</p>
+                        <p style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--jade)' }}>{selectedFolios.length}/{holdings.length}</p>
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(0,0,0,0.22)', borderRadius: 999, height: 10, border: '1px solid rgba(255,255,255,0.06)', overflow: 'hidden', marginBottom: 10 }}>
+                      <div style={{ width: `${meterPct}%`, height: '100%', background: 'linear-gradient(90deg, #00D4A1, #00A878)', boxShadow: '0 0 18px rgba(0,212,161,0.35)' }} />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div style={{ background: 'rgba(0,0,0,0.18)', borderRadius: 12, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>ELIGIBLE FROM SELECTION</p>
+                        <p style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--jade)' }}>{fmtL(selectedCredit)}</p>
+                      </div>
+                      <div style={{ background: 'rgba(0,0,0,0.18)', borderRadius: 12, padding: '10px 12px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)', marginBottom: 4 }}>APPROVED (RISK)</p>
+                        <p style={{ fontSize: 14, fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-primary)' }}>{fmtL(baseApproved)}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                )
+              })()}
+
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
                 <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>SELECT MUTUAL FUNDS TO PLEDGE</p>
                 <p style={{ fontSize: 10, color: 'var(--jade)', fontFamily: 'var(--font-mono)' }}>{selectedFolios.length}/{holdings.length}</p>
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+
+              <div className="lp-fund-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginBottom: 16 }}>
                 {holdings.map((h) => {
                   const isSel = selectedFolios.includes(h.folio_number)
                   const ltvPct = (parseLtv(h) * 100).toFixed(0)
@@ -363,28 +402,58 @@ export default function Onboarding({ onComplete }) {
                   const value = parseFloat(h.current_value || h.value_at_fetch || 0)
                   return (
                     <motion.div key={h.folio_number} whileTap={{ scale: 0.98 }} onClick={() => toggleFolio(h.folio_number)}
-                      style={{ background: isSel ? 'var(--jade-dim)' : 'var(--bg-surface)', border: `1px solid ${isSel ? 'var(--jade-border)' : 'var(--border)'}`, borderRadius: 16, padding: '14px 16px', cursor: 'pointer', transition: 'all 0.2s' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
-                        <div style={{ width: 22, height: 22, borderRadius: 8, flexShrink: 0, background: isSel ? 'var(--jade)' : 'var(--bg-elevated)', border: `1.5px solid ${isSel ? 'var(--jade)' : 'var(--border-light)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          {isSel && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17L4 12"/></svg>}
+                      style={{
+                        background: isSel ? 'var(--jade-dim)' : 'var(--bg-surface)',
+                        border: `1px solid ${isSel ? 'var(--jade-border)' : 'var(--border)'}`,
+                        borderRadius: 18,
+                        padding: '14px 14px 12px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        boxShadow: isSel ? '0 10px 28px rgba(0,212,161,0.12)' : 'none',
+                      }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 10 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: 12, fontWeight: 800, marginBottom: 4, lineHeight: 1.25, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                            {h.scheme_name}
+                          </p>
+                          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', letterSpacing: '1.5px' }}>
+                            {h.scheme_type?.replace(/_/g, ' ')}
+                          </p>
                         </div>
-                        <div style={{ flex: 1 }}>
-                          <p style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>{h.scheme_name}</p>
-                          <p style={{ fontSize: 9, color: ltvColor, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{h.scheme_type?.replace(/_/g, ' ')} · {h.rta === 'CAMS' ? 'MF Central' : 'MF Central'}</p>
+                        <div style={{ width: 26, height: 26, borderRadius: 10, flexShrink: 0, background: isSel ? 'var(--jade)' : 'var(--bg-elevated)', border: `1.5px solid ${isSel ? 'var(--jade)' : 'var(--border-light)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {isSel && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="3"><path d="M20 6L9 17L4 12"/></svg>}
                         </div>
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 5 }}>
-                        <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '5px 8px' }}><p style={{ fontSize: 7, color: 'var(--text-muted)', marginBottom: 2 }}>VALUE</p><p style={{ fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)' }}>{fmtL(value)}</p></div>
-                        <div style={{ background: 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '5px 8px' }}><p style={{ fontSize: 7, color: 'var(--text-muted)', marginBottom: 2 }}>LTV CAP</p><p style={{ fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)', color: ltvColor }}>{ltvPct}%</p></div>
-                        <div style={{ background: isSel ? 'rgba(0,212,161,0.12)' : 'rgba(0,0,0,0.2)', borderRadius: 7, padding: '5px 8px' }}><p style={{ fontSize: 7, color: 'var(--text-muted)', marginBottom: 2 }}>CREDIT</p><p style={{ fontSize: 11, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--jade)' }}>{fmtL(eligible)}</p></div>
+
+                      <div style={{ background: 'var(--bg-elevated)', borderRadius: 14, padding: '10px 10px 10px', border: '1px solid rgba(255,255,255,0.04)', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+                          <p style={{ fontSize: 8, color: 'var(--text-muted)', letterSpacing: '2px', fontFamily: 'var(--font-mono)' }}>CREDIT FROM THIS FUND</p>
+                          <p style={{ fontSize: 8, color: ltvColor, fontFamily: 'var(--font-mono)', fontWeight: 800 }}>{ltvPct}% LTV</p>
+                        </div>
+                        <p style={{ fontSize: 18, fontFamily: 'var(--font-mono)', fontWeight: 900, color: 'var(--jade)', lineHeight: 1 }}>
+                          {fmtL(eligible)}
+                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <p style={{ fontSize: 7, color: 'var(--text-muted)', marginBottom: 2 }}>VALUE</p>
+                            <p style={{ fontSize: 11, fontWeight: 800, fontFamily: 'var(--font-mono)' }}>{fmtL(value)}</p>
+                          </div>
+                          <div style={{ flex: 1, textAlign: 'right' }}>
+                            <p style={{ fontSize: 7, color: 'var(--text-muted)', marginBottom: 2 }}>RTA</p>
+                            <p style={{ fontSize: 11, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{h.rta === 'CAMS' ? 'MF Central' : 'MF Central'}</p>
+                          </div>
+                        </div>
                       </div>
-                      <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 7, fontFamily: 'var(--font-mono)' }}>
-                        {fmtL(value)} × <span style={{ color: ltvColor }}>{ltvPct}% LTV</span> = <span style={{ color: 'var(--jade)', fontWeight: 600 }}>{fmtL(eligible)} credit</span>
-                      </p>
+
+                      <div style={{ background: 'rgba(0,0,0,0.18)', borderRadius: 12, padding: '8px 10px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                        <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                          {fmtL(value)} × <span style={{ color: ltvColor, fontWeight: 700 }}>{ltvPct}%</span> = <span style={{ color: 'var(--jade)', fontWeight: 800 }}>{fmtL(eligible)}</span>
+                        </p>
+                      </div>
                     </motion.div>
                   )
                 })}
-              </div>
+                </div>
               <CTA onClick={() => { setCurrentStep('PLEDGE'); setSubStep(0) }} loading={false} label="Continue to Pledge →" disabled={selectedFolios.length === 0} />
             </motion.div>
           )}
